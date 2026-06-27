@@ -83,6 +83,7 @@ textarea{resize:vertical;min-height:50px;}
 .tag-cobrada{background:#d1fadf;color:#155724;}
 .tag-pendiente{background:#ffe8cc;color:#7d4100;}
 .tag-perdida{background:#fdd;color:#7d0000;}
+.tag-parcial{background:#fff3cd;color:#856404;}
 
 /* STOCK BARS */
 .stock-item{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:11px;}
@@ -222,10 +223,11 @@ textarea{resize:vertical;min-height:50px;}
 <!-- DASHBOARD -->
 <div id="panel-dashboard" class="panel active">
   <div class="kpi-grid" id="kpiGrid"></div>
+  <div class="kpi-grid" id="kpiGridSemana" style="margin-top:-4px"></div>
   <div id="alertasContainer"></div>
   <div class="sec-title">Últimas Ventas <span class="line"></span></div>
   <div class="scroll-area">
-    <table class="tabla"><thead><tr><th>Fecha</th><th>Producto</th><th>Cant</th><th>Total</th><th>Estado</th></tr></thead>
+    <table class="tabla"><thead><tr><th>Fecha</th><th>Producto</th><th>Cant</th><th>Total</th><th>Estado</th><th></th></tr></thead>
     <tbody id="tbodyVentas"></tbody></table>
   </div>
   <div class="sec-title" style="margin-top:12px">Top Productos <span class="line"></span></div>
@@ -245,10 +247,23 @@ textarea{resize:vertical;min-height:50px;}
   <div class="form-row three">
     <div><label>Cantidad</label><input type="number" id="ventaCantidad" value="1" min="1" oninput="calcularTotalVenta()"></div>
     <div><label>Precio Unit $</label><input type="number" id="ventaPrecio" placeholder="Auto" oninput="calcularTotalVenta()"></div>
-    <div><label>¿Cobrada?</label><select id="ventaCobrada"><option value="si">✅ Sí</option><option value="no">⏳ Pendiente</option></select></div>
+    <div><label>Estado</label>
+      <select id="ventaCobrada" onchange="toggleMontoCobrado()">
+        <option value="si">✅ Cobrada</option>
+        <option value="parcial">💛 Parcial</option>
+        <option value="no">⏳ Pendiente</option>
+      </select>
+    </div>
+  </div>
+  <div class="form-row one" id="montoCobradoRow" style="display:none">
+    <div><label>Monto Cobrado $</label>
+      <input type="number" id="ventaMontoCobrado" placeholder="¿Cuánto pagaron?" oninput="calcularTotalVenta()">
+    </div>
   </div>
   <div class="form-row one"><div><label>Notas</label><input type="text" id="ventaNotas" placeholder="Observaciones…"></div></div>
-  <div class="precio-display"><span>Total de la venta</span><span class="precio-total" id="ventaTotalValor">$0</span></div>
+  <div class="precio-display" id="ventaPrecioDisplay">
+    <span>Total de la venta</span><span class="precio-total" id="ventaTotalValor">$0</span>
+  </div>
   <button class="btn btn-primary" onclick="guardarVenta()">💰 REGISTRAR VENTA</button>
   <div class="sec-title" style="margin-top:14px">Ventas No Cobradas <span class="line"></span></div>
   <div id="ventasPendientes"></div>
@@ -378,6 +393,10 @@ textarea{resize:vertical;min-height:50px;}
   <div id="stockBombillas" class="scroll-area" style="max-height:110px"></div>
   <div class="sec-title" style="margin-top:10px">🧺 Canastas y Accesorios <span class="line"></span></div>
   <div id="stockCanastas"></div>
+  <div id="stockCustomSection" style="display:none">
+    <div class="sec-title" style="margin-top:10px">➕ Productos Agregados <span class="line"></span></div>
+    <div id="stockCustom"></div>
+  </div>
 </div>
 
 <!-- CAJA -->
@@ -415,13 +434,16 @@ textarea{resize:vertical;min-height:50px;}
   <div class="sec-title">Nuevo Producto <span class="line"></span></div>
   <div class="form-row">
     <div><label>Nombre del Producto</label><input type="text" id="prodNombre" placeholder="Ej: Canarias Naranja 1Kg"></div>
-    <div><label>Categoría</label><select id="prodCategoria">
+    <div><label>Categoría</label><select id="prodCategoria" onchange="sugerirCodigo()">
       <option value="Yerbas">🌿 Yerbas</option><option value="Mates">🪔 Mates</option><option value="Bombillas">💨 Bombillas</option><option value="Canastas">🧺 Canastas</option>
     </select></div>
   </div>
   <div class="form-row">
     <div><label>Precio Venta $</label><input type="number" id="prodPrecioVenta" placeholder="0" oninput="actualizarMargenPreview()"></div>
     <div><label>Costo Base $</label><input type="number" id="prodCostoBase" placeholder="0" oninput="actualizarMargenPreview()"></div>
+  </div>
+  <div class="form-row one">
+    <div><label>Código</label><input type="number" id="prodCodigo" placeholder="Se asigna automáticamente"></div>
   </div>
   <div id="prodMargenPreview" style="display:none" class="precio-display">
     <span>Margen estimado</span><span class="precio-total" id="prodMargenValor">—</span>
@@ -485,7 +507,16 @@ textarea{resize:vertical;min-height:50px;}
     <div class="form-row three">
       <div><label>Cantidad</label><input type="number" id="editCantidad" min="1" oninput="calcEditTotal()"></div>
       <div><label>Precio Unit $</label><input type="number" id="editPrecio" oninput="calcEditTotal()"></div>
-      <div><label>¿Cobrada?</label><select id="editCobrada"><option value="si">✅ Sí</option><option value="no">⏳ No</option></select></div>
+      <div><label>Estado</label>
+        <select id="editCobrada" onchange="toggleEditMontoCobrado()">
+          <option value="si">✅ Cobrada</option>
+          <option value="parcial">💛 Parcial</option>
+          <option value="no">⏳ Pendiente</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row one" id="editMontoCobradoRow" style="display:none">
+      <div><label>Monto Cobrado $</label><input type="number" id="editMontoCobrado" placeholder="¿Cuánto pagaron?"></div>
     </div>
     <div class="form-row one">
       <div><label>Notas</label><input type="text" id="editNotas"></div>
@@ -522,48 +553,48 @@ textarea{resize:vertical;min-height:50px;}
 // DATOS BASE (del Excel ADN_MEJORADO_TOPE_GAMA.xlsx)
 // ══════════════════════════════════════════════════════════════
 const PRODUCTOS_YERBAS = [
-  {nombre:'Baldo Clásica 1Kg',precioVenta:10000,costoBase:8288},
-  {nombre:'Canarias Clásica 1Kg',precioVenta:10200,costoBase:8513},
-  {nombre:'Canarias Edición Especial 1Kg',precioVenta:10700,costoBase:9046},
-  {nombre:'Canarias Té Verde y Jengibre 1Kg',precioVenta:10700,costoBase:9046},
-  {nombre:'Canarias Serena 1Kg',precioVenta:10700,costoBase:8905},
-  {nombre:'Rei Verde Tradicional 1Kg',precioVenta:7500,costoBase:6284},
-  {nombre:'Rei Verde Clásica 1Kg',precioVenta:6500,costoBase:5649},
-  {nombre:'Rei Verde Premium 1Kg',precioVenta:9000,costoBase:7530},
-  {nombre:'Libre Clásica 1Kg',precioVenta:6000,costoBase:5043},
-  {nombre:'Sara Tradicional 1Kg',precioVenta:11700,costoBase:9790},
-  {nombre:'Sara Extra Suave 1Kg',precioVenta:11700,costoBase:9790},
-  {nombre:'Sara Coco 0,5 Kg',precioVenta:7800,costoBase:6253},
+  {codigo:1001,nombre:'Baldo Clásica 1Kg',precioVenta:10000,costoBase:8288},
+  {codigo:1002,nombre:'Canarias Clásica 1Kg',precioVenta:10200,costoBase:8513},
+  {codigo:1003,nombre:'Canarias Edición Especial 1Kg',precioVenta:10700,costoBase:9046},
+  {codigo:1004,nombre:'Canarias Té Verde y Jengibre 1Kg',precioVenta:10700,costoBase:9046},
+  {codigo:1005,nombre:'Canarias Serena 1Kg',precioVenta:10700,costoBase:8905},
+  {codigo:1006,nombre:'Rei Verde Tradicional 1Kg',precioVenta:7500,costoBase:6284},
+  {codigo:1007,nombre:'Rei Verde Clásica 1Kg',precioVenta:6500,costoBase:5649},
+  {codigo:1008,nombre:'Rei Verde Premium 1Kg',precioVenta:9000,costoBase:7530},
+  {codigo:1009,nombre:'Libre Clásica 1Kg',precioVenta:6000,costoBase:5043},
+  {codigo:1010,nombre:'Sara Tradicional 1Kg',precioVenta:11700,costoBase:9790},
+  {codigo:1011,nombre:'Sara Extra Suave 1Kg',precioVenta:11700,costoBase:9790},
+  {codigo:1012,nombre:'Sara Coco 0,5 Kg',precioVenta:7800,costoBase:6253},
 ];
 const PRODUCTOS_MATES = [
-  {nombre:'Imperial cincelado',precioVenta:20000,costoBase:15500},
-  {nombre:'Bocón algarrobo',precioVenta:10000,costoBase:7000},
-  {nombre:'Ranchero',precioVenta:19000,costoBase:15000},
-  {nombre:'Torpedo al lacre',precioVenta:30000,costoBase:22500},
-  {nombre:'Torpedo al lacre con anillo',precioVenta:45000,costoBase:41000},
-  {nombre:'Imperial combinado',precioVenta:17000,costoBase:14500},
-  {nombre:'Imperial algarrobo',precioVenta:15000,costoBase:11200},
-  {nombre:'Imperial labrado',precioVenta:25000,costoBase:25000},
-  {nombre:'Imperial cincelado labrado',precioVenta:19000,costoBase:19000},
-  {nombre:'Criollo liso base con dije',precioVenta:16000,costoBase:16000},
-  {nombre:'Coquito',precioVenta:18000,costoBase:14500},
+  {codigo:2001,nombre:'Imperial cincelado',precioVenta:20000,costoBase:15500},
+  {codigo:2002,nombre:'Bocón algarrobo',precioVenta:10000,costoBase:7000},
+  {codigo:2003,nombre:'Ranchero',precioVenta:19000,costoBase:15000},
+  {codigo:2004,nombre:'Torpedo al lacre',precioVenta:30000,costoBase:22500},
+  {codigo:2005,nombre:'Torpedo al lacre con anillo',precioVenta:45000,costoBase:41000},
+  {codigo:2006,nombre:'Imperial combinado',precioVenta:17000,costoBase:14500},
+  {codigo:2007,nombre:'Imperial algarrobo',precioVenta:15000,costoBase:11200},
+  {codigo:2008,nombre:'Imperial labrado',precioVenta:25000,costoBase:25000},
+  {codigo:2009,nombre:'Imperial cincelado labrado',precioVenta:19000,costoBase:19000},
+  {codigo:2010,nombre:'Criollo liso base con dije',precioVenta:16000,costoBase:16000},
+  {codigo:2011,nombre:'Coquito',precioVenta:18000,costoBase:14500},
 ];
 const PRODUCTOS_BOMBILLAS = [
-  {nombre:'Pico loro acero',precioVenta:3500,costoBase:2700},
-  {nombre:'Pico loro acero c/dije',precioVenta:4500,costoBase:3300},
-  {nombre:'Pico loro alpaca',precioVenta:6000,costoBase:4500},
-  {nombre:'Pico loro acero cincelado',precioVenta:5000,costoBase:3900},
-  {nombre:'Bombillón enroscado',precioVenta:15000,costoBase:13300},
-  {nombre:'Bombillón pico rey cincelado',precioVenta:19000,costoBase:14300},
-  {nombre:'Bombillón corona',precioVenta:20000,costoBase:20000},
-  {nombre:'Bombillas semi recto acero cin.',precioVenta:3700,costoBase:3700},
+  {codigo:3001,nombre:'Pico loro acero',precioVenta:3500,costoBase:2700},
+  {codigo:3002,nombre:'Pico loro acero c/dije',precioVenta:4500,costoBase:3300},
+  {codigo:3003,nombre:'Pico loro alpaca',precioVenta:6000,costoBase:4500},
+  {codigo:3004,nombre:'Pico loro acero cincelado',precioVenta:5000,costoBase:3900},
+  {codigo:3005,nombre:'Bombillón enroscado',precioVenta:15000,costoBase:13300},
+  {codigo:3006,nombre:'Bombillón pico rey cincelado',precioVenta:19000,costoBase:14300},
+  {codigo:3007,nombre:'Bombillón corona',precioVenta:20000,costoBase:20000},
+  {codigo:3008,nombre:'Bombillas semi recto acero cin.',precioVenta:3700,costoBase:3700},
 ];
 const PRODUCTOS_CANASTAS = [
-  {nombre:'Canasta de cuero',precioVenta:28500,costoBase:22000},
-  {nombre:'Canasta ecocuero',precioVenta:12000,costoBase:7500},
-  {nombre:'Yerbera gamuzada',precioVenta:5000,costoBase:3300},
-  {nombre:'Termo total black',precioVenta:15000,costoBase:12500},
-  {nombre:'Termo media manija',precioVenta:0,costoBase:11000},
+  {codigo:4001,nombre:'Canasta de cuero',precioVenta:28500,costoBase:22000},
+  {codigo:4002,nombre:'Canasta ecocuero',precioVenta:12000,costoBase:7500},
+  {codigo:4003,nombre:'Yerbera gamuzada',precioVenta:5000,costoBase:3300},
+  {codigo:4004,nombre:'Termo total black',precioVenta:15000,costoBase:12500},
+  {codigo:4005,nombre:'Termo media manija',precioVenta:0,costoBase:11000},
 ];
 const TODOS_LOS_PRODUCTOS = [
   ...PRODUCTOS_YERBAS.map(p=>({...p,categoria:'Yerbas'})),
@@ -798,8 +829,8 @@ async function cargarDatos() {
       id: v.id, fecha: v.fecha, cliente: v.cliente||'',
       producto: v.producto, cantidad: v.cantidad,
       precioUnit: v.precio_unit, total: v.total,
-      cobrada: v.cobrada, notas: v.notas||'',
-      historica: v.historica
+      cobrada: v.cobrada, montoCobrado: v.monto_cobrado||null,
+      notas: v.notas||'', historica: v.historica
     }));
 
     // Mapear compras
@@ -980,14 +1011,14 @@ function reconstruirSelectores(){
       g.items.forEach(p => {
         const o = document.createElement('option');
         o.value = p.nombre;
-        o.textContent = p.nombre;
+        o.textContent = p.codigo ? `[${p.codigo}] ${p.nombre}` : p.nombre;
         og.appendChild(o);
       });
       // Productos custom de esa misma categoría
       custom.filter(p => p.categoria === g.cat).forEach(p => {
         const o = document.createElement('option');
         o.value = p.nombre;
-        o.textContent = p.nombre + ' ✦';
+        o.textContent = p.codigo ? `[${p.codigo}] ${p.nombre}` : p.nombre;
         og.appendChild(o);
       });
       sel.appendChild(og);
@@ -1001,7 +1032,7 @@ function reconstruirSelectores(){
       sinCat.forEach(p => {
         const o = document.createElement('option');
         o.value = p.nombre;
-        o.textContent = p.nombre + ' ✦';
+        o.textContent = p.codigo ? `[${p.codigo}] ${p.nombre}` : p.nombre;
         og.appendChild(o);
       });
       sel.appendChild(og);
@@ -1018,7 +1049,29 @@ function onProductoChange(tipo){
   if(tipo==='venta'){document.getElementById('ventaPrecio').value=prod.precioVenta;calcularTotalVenta();}
   else{document.getElementById('compraCosto').value=prod.costoBase;calcularTotalCompra();}
 }
-function calcularTotalVenta(){const c=parseFloat(document.getElementById('ventaCantidad').value)||0,p=parseFloat(document.getElementById('ventaPrecio').value)||0;document.getElementById('ventaTotalValor').textContent=formatPeso(c*p);}
+function toggleMontoCobrado(){
+  const estado = document.getElementById('ventaCobrada').value;
+  const row = document.getElementById('montoCobradoRow');
+  row.style.display = estado === 'parcial' ? 'grid' : 'none';
+  if(estado !== 'parcial') document.getElementById('ventaMontoCobrado').value = '';
+  calcularTotalVenta();
+}
+function calcularTotalVenta(){
+  const c=parseFloat(document.getElementById('ventaCantidad').value)||0;
+  const p=parseFloat(document.getElementById('ventaPrecio').value)||0;
+  const total=c*p;
+  const estado=document.getElementById('ventaCobrada').value;
+  const mc=parseFloat(document.getElementById('ventaMontoCobrado')?.value)||0;
+  const display = document.getElementById('ventaPrecioDisplay');
+  if(estado==='parcial' && mc>0){
+    document.getElementById('ventaTotalValor').textContent = formatPeso(total);
+    display.style.background = '#b36a00';
+    display.innerHTML = `<span>Total: ${formatPeso(total)}</span><span class="precio-total">Cobrado: ${formatPeso(mc)} · Resta: ${formatPeso(total-mc)}</span>`;
+  } else {
+    display.style.background = 'var(--verde)';
+    display.innerHTML = `<span>Total de la venta</span><span class="precio-total" id="ventaTotalValor">${formatPeso(total)}</span>`;
+  }
+}
 function calcularTotalCompra(){const c=parseFloat(document.getElementById('compraCantidad').value)||0,p=parseFloat(document.getElementById('compraCosto').value)||0;document.getElementById('compraTotalValor').textContent=formatPeso(c*p);}
 
 // ══════════════════════════════════════════════════════════════
@@ -1030,34 +1083,82 @@ async function guardarVenta(){
         producto=document.getElementById('ventaProducto').value,
         cantidad=parseFloat(document.getElementById('ventaCantidad').value),
         precio=parseFloat(document.getElementById('ventaPrecio').value),
-        cobrada=document.getElementById('ventaCobrada').value==='si',
+        estado=document.getElementById('ventaCobrada').value,
         notas=document.getElementById('ventaNotas').value.trim();
   if(!producto||!cantidad||!precio){toast('⚠️ Completá producto, cantidad y precio');return;}
+
+  const total = cantidad * precio;
+  const cobrada = estado === 'si';
+  const montoCobrado = estado === 'parcial' ? (parseFloat(document.getElementById('ventaMontoCobrado').value)||0) : null;
+
+  if(estado === 'parcial' && (!montoCobrado || montoCobrado <= 0)){
+    toast('⚠️ Ingresá el monto cobrado'); return;
+  }
+  if(estado === 'parcial' && montoCobrado >= total){
+    toast('⚠️ Si cobró todo, elegí "Cobrada"'); return;
+  }
+
   const id=Date.now().toString();
-  appData.ventas.push({id,fecha,cliente,producto,cantidad,precioUnit:precio,total:cantidad*precio,cobrada,notas,historica:false});
-  sbUpsert('ventas',{id,fecha,cliente,producto,cantidad,precio_unit:precio,total:cantidad*precio,cobrada,notas,historica:false});
+  appData.ventas.push({id,fecha,cliente,producto,cantidad,precioUnit:precio,total,cobrada,montoCobrado,notas,historica:false});
+  sbUpsert('ventas',{id,fecha,cliente,producto,cantidad,precio_unit:precio,total,cobrada,monto_cobrado:montoCobrado,notas,historica:false});
+
+  // Actualizar precio de venta del producto automáticamente
+  const prodNorm = normalizar(producto);
+  let precioActualizado = false;
+  const prodBase = TODOS_LOS_PRODUCTOS.find(p=>normalizar(p.nombre)===prodNorm);
+  if(prodBase && prodBase.precioVenta !== precio){
+    prodBase.precioVenta = precio;
+    precioActualizado = true;
+  }
+  const prodCustom = (appData.productosCustom||[]).find(p=>normalizar(p.nombre)===prodNorm);
+  if(prodCustom && prodCustom.precioVenta !== precio){
+    prodCustom.precioVenta = precio;
+    sbUpdate('productos_custom', prodCustom.id, {precio_venta: precio});
+    precioActualizado = true;
+  }
+
   document.getElementById('ventaCliente').value='';
   document.getElementById('ventaProducto').value='';
   document.getElementById('ventaCantidad').value='1';
   document.getElementById('ventaPrecio').value='';
   document.getElementById('ventaNotas').value='';
-  document.getElementById('ventaTotalValor').textContent='$0';
-  toast('✅ Venta registrada!'); renderVentasPendientes(); renderDashboard();
+  document.getElementById('ventaCobrada').value='si';
+  document.getElementById('montoCobradoRow').style.display='none';
+  document.getElementById('ventaMontoCobrado').value='';
+  // Reset display
+  document.getElementById('ventaPrecioDisplay').style.background='var(--verde)';
+  document.getElementById('ventaPrecioDisplay').innerHTML='<span>Total de la venta</span><span class="precio-total" id="ventaTotalValor">$0</span>';
+  renderVentasPendientes(); renderDashboard();
+  toastConEditar(id, precioActualizado ? `✅ Venta registrada · Precio actualizado a ${formatPeso(precio)}` : '✅ Venta registrada!');
 }
 // ─── EDITAR VENTA ────────────────────────────────────────────
 function abrirEditarVenta(id){
   const v = appData.ventas.find(v=>v.id===id);
   if(!v) return;
+  const estado = v.cobrada ? 'si' : (v.montoCobrado > 0 ? 'parcial' : 'no');
   document.getElementById('editVentaId').value  = id;
   document.getElementById('editFecha').value    = (v.fecha||'').slice(0,10);
   document.getElementById('editCliente').value  = v.cliente||'';
   document.getElementById('editProducto').value = v.producto;
   document.getElementById('editCantidad').value = v.cantidad;
   document.getElementById('editPrecio').value   = v.precioUnit;
-  document.getElementById('editCobrada').value  = v.cobrada ? 'si' : 'no';
+  document.getElementById('editCobrada').value  = estado;
   document.getElementById('editNotas').value    = v.notas||'';
   document.getElementById('editTotal').textContent = formatPeso(v.total);
+  // Mostrar monto cobrado si es parcial
+  const mcRow = document.getElementById('editMontoCobradoRow');
+  if(estado === 'parcial'){
+    mcRow.style.display = 'grid';
+    document.getElementById('editMontoCobrado').value = v.montoCobrado||'';
+  } else {
+    mcRow.style.display = 'none';
+  }
   document.getElementById('modalEditarVenta').style.display = 'flex';
+}
+function toggleEditMontoCobrado(){
+  const estado = document.getElementById('editCobrada').value;
+  document.getElementById('editMontoCobradoRow').style.display = estado==='parcial' ? 'grid' : 'none';
+  if(estado !== 'parcial') document.getElementById('editMontoCobrado').value='';
 }
 function calcEditTotal(){
   const c=parseFloat(document.getElementById('editCantidad').value)||0;
@@ -1074,18 +1175,18 @@ async function guardarEdicionVenta(){
   const producto = document.getElementById('editProducto').value.trim();
   const cantidad = parseFloat(document.getElementById('editCantidad').value)||0;
   const precio   = parseFloat(document.getElementById('editPrecio').value)||0;
-  const cobrada  = document.getElementById('editCobrada').value === 'si';
+  const estado   = document.getElementById('editCobrada').value;
   const notas    = document.getElementById('editNotas').value.trim();
   const total    = cantidad * precio;
+  const cobrada  = estado === 'si';
+  const montoCobrado = estado === 'parcial' ? (parseFloat(document.getElementById('editMontoCobrado').value)||0) : null;
 
   if(!producto||!cantidad||!precio){ toast('⚠️ Completá todos los campos'); return; }
 
-  // Actualizar en memoria
   const v = appData.ventas.find(v=>v.id===id);
-  if(v){ Object.assign(v,{fecha,cliente,producto,cantidad,precioUnit:precio,total,cobrada,notas}); }
+  if(v){ Object.assign(v,{fecha,cliente,producto,cantidad,precioUnit:precio,total,cobrada,montoCobrado,notas}); }
 
-  // Actualizar en Supabase
-  await sbUpdate('ventas', id, {fecha,cliente,producto,cantidad,precio_unit:precio,total,cobrada,notas});
+  await sbUpdate('ventas', id, {fecha,cliente,producto,cantidad,precio_unit:precio,total,cobrada,monto_cobrado:montoCobrado,notas});
 
   document.getElementById('modalEditarVenta').style.display = 'none';
   renderDashboard(); renderVentasPendientes();
@@ -1129,19 +1230,22 @@ function renderVentasPendientes(){
   });
   const c=document.getElementById('ventasPendientes');
   if(!pend.length){c.innerHTML='<div class="empty-state"><span class="emoji">🎉</span>Todo cobrado</div>';return;}
-  const totalPend = pend.reduce((s,v)=>s+v.total,0);
+  const totalPend = pend.reduce((s,v)=>s+(v.total-(v.montoCobrado||0)),0);
   c.innerHTML=`
     <div style="background:var(--naranja);color:white;border-radius:8px;padding:8px 12px;margin-bottom:8px;display:flex;justify-content:space-between;font-size:12px;font-weight:600;">
       <span>💰 Total pendiente</span><span style="font-family:'Bebas Neue';font-size:18px">${formatPeso(totalPend)}</span>
     </div>
-    <table class="tabla"><thead><tr><th>Fecha</th><th>Cliente</th><th>Producto</th><th>Total</th><th>Acción</th></tr></thead><tbody>${
-    pend.map(v=>`<tr>
-      <td style="white-space:nowrap">${formatFecha(v.fecha)}</td>
-      <td style="max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.cliente||'—'}</td>
-      <td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v.producto}">${v.producto.length>16?v.producto.slice(0,15)+'…':v.producto}</td>
-      <td><strong>${formatPeso(v.total)}</strong></td>
-      <td><button class="btn btn-primary btn-sm" onclick="marcarCobrada('${v.id}')">✓ Cobrar</button></td>
-    </tr>`).join('')
+    <table class="tabla"><thead><tr><th>Fecha</th><th>Cliente</th><th>Producto</th><th>Resta</th><th>Acción</th></tr></thead><tbody>${
+    pend.map(v=>{
+      const resta = v.total-(v.montoCobrado||0);
+      const parcial = (v.montoCobrado||0) > 0;
+      return`<tr>
+        <td style="white-space:nowrap">${formatFecha(v.fecha)}</td>
+        <td style="max-width:55px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.cliente||'—'}</td>
+        <td style="max-width:75px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v.producto}">${v.producto.length>14?v.producto.slice(0,13)+'…':v.producto}</td>
+        <td><strong>${formatPeso(resta)}</strong>${parcial?`<br><span style="font-size:9px;color:var(--verde2)">ya cobró ${formatPeso(v.montoCobrado)}</span>`:''}</td>
+        <td><button class="btn btn-primary btn-sm" onclick="marcarCobrada('${v.id}')">✓ Cobrar</button></td>
+      </tr>`;}).join('')
   }</tbody></table>`;
 }
 
@@ -1159,13 +1263,33 @@ async function guardarCompra(){
   const id=Date.now().toString();
   appData.compras.push({id,fecha,proveedor,producto,cantidad,costoUnit:costo,total:cantidad*costo,notas,historica:false});
   sbUpsert('compras',{id,fecha,proveedor,producto,cantidad,costo_unit:costo,total:cantidad*costo,notas,historica:false});
+
+  // Actualizar costo del producto automáticamente
+  const prodNorm = normalizar(producto);
+  let costoActualizado = false;
+
+  // Producto base
+  const prodBase = TODOS_LOS_PRODUCTOS.find(p=>normalizar(p.nombre)===prodNorm);
+  if(prodBase && prodBase.costoBase !== costo){
+    prodBase.costoBase = costo;
+    costoActualizado = true;
+  }
+  // Producto custom
+  const prodCustom = (appData.productosCustom||[]).find(p=>normalizar(p.nombre)===prodNorm);
+  if(prodCustom && prodCustom.costoBase !== costo){
+    prodCustom.costoBase = costo;
+    sbUpdate('productos_custom', prodCustom.id, {costo_base: costo});
+    costoActualizado = true;
+  }
+
   document.getElementById('compraProveedor').value='';
   document.getElementById('compraProducto').value='';
   document.getElementById('compraCantidad').value='1';
   document.getElementById('compraCosto').value='';
   document.getElementById('compraNotas').value='';
   document.getElementById('compraTotalValor').textContent='$0';
-  toast('✅ Compra registrada!'); renderUltimasCompras(); renderDashboard();
+  renderUltimasCompras(); renderDashboard();
+  toast(costoActualizado ? `✅ Compra registrada · Costo actualizado a ${formatPeso(costo)}` : '✅ Compra registrada!');
 }
 function renderUltimasCompras(){
   const rec=[...appData.compras].sort((a,b)=>{
@@ -1182,20 +1306,29 @@ function renderUltimasCompras(){
 // DASHBOARD
 // ══════════════════════════════════════════════════════════════
 function renderDashboard(){
-  // Fecha local (no UTC) para evitar desfase horario en Argentina
   const ahora = new Date();
   const hoy = `${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}-${String(ahora.getDate()).padStart(2,'0')}`;
-  const vh=appData.ventas.filter(v=>(v.fecha||'').slice(0,10)===hoy);
-  const th=vh.reduce((s,v)=>s+(parseFloat(v.total)||0),0);
-  const tcob=appData.ventas.filter(v=>v.cobrada).reduce((s,v)=>s+(parseFloat(v.total)||0),0);
-  const tpend=appData.ventas.filter(v=>!v.cobrada).reduce((s,v)=>s+(parseFloat(v.total)||0),0);
+
+  // Inicio de semana (lunes)
+  const diaSemana = ahora.getDay() === 0 ? 6 : ahora.getDay() - 1;
+  const lunes = new Date(ahora); lunes.setDate(ahora.getDate() - diaSemana); lunes.setHours(0,0,0,0);
+  const lunesStr = `${lunes.getFullYear()}-${String(lunes.getMonth()+1).padStart(2,'0')}-${String(lunes.getDate()).padStart(2,'0')}`;
+
+  const ventasHoy    = appData.ventas.filter(v=>(v.fecha||'').slice(0,10)===hoy);
+  const ventasSemana = appData.ventas.filter(v=>(v.fecha||'').slice(0,10)>=lunesStr && (v.fecha||'').slice(0,10)<=hoy);
+  const th   = ventasHoy.reduce((s,v)=>s+(parseFloat(v.total)||0),0);
+  const tsem = ventasSemana.reduce((s,v)=>s+(parseFloat(v.total)||0),0);
+
+  const tcob = appData.ventas.filter(v=>v.cobrada).reduce((s,v)=>s+(parseFloat(v.total)||0),0)
+             + appData.ventas.filter(v=>!v.cobrada&&v.montoCobrado>0).reduce((s,v)=>s+(parseFloat(v.montoCobrado)||0),0);
+  const tpend = appData.ventas.filter(v=>!v.cobrada).reduce((s,v)=>s+(parseFloat(v.total)||0)-(parseFloat(v.montoCobrado)||0),0);
   const tcomp=appData.compras.reduce((s,c)=>s+(parseFloat(c.total)||0),0);
   const bajos=TODOS_LOS_PRODUCTOS.filter(p=>getStockActual(p.nombre)<=appData.config.stockThreshold&&getStockActual(p.nombre)>=0);
   document.getElementById('kpiGrid').innerHTML=`
-    <div class="kpi-card"><div class="kpi-label">Ventas Hoy</div><div class="kpi-value">${formatPeso(th)}</div><div class="kpi-sub">${vh.length} transacciones</div></div>
+    <div class="kpi-card"><div class="kpi-label">💰 Ventas Hoy</div><div class="kpi-value">${formatPeso(th)}</div><div class="kpi-sub">${ventasHoy.length} transacciones</div></div>
+    <div class="kpi-card" style="border-left-color:var(--verde3)"><div class="kpi-label">📅 Esta Semana</div><div class="kpi-value" style="font-size:20px">${formatPeso(tsem)}</div><div class="kpi-sub">${ventasSemana.length} transacciones</div></div>
     <div class="kpi-card accent3"><div class="kpi-label">Total Cobrado</div><div class="kpi-value" style="font-size:18px">${formatPeso(tcob)}</div><div class="kpi-sub">Ingresos efectivos</div></div>
-    <div class="kpi-card accent"><div class="kpi-label">Por Cobrar</div><div class="kpi-value" style="font-size:18px">${formatPeso(tpend)}</div><div class="kpi-sub">${appData.ventas.filter(v=>!v.cobrada).length} pendientes</div></div>
-    <div class="kpi-card accent2"><div class="kpi-label">Total Compras</div><div class="kpi-value" style="font-size:18px">${formatPeso(tcomp)}</div><div class="kpi-sub">Inversión total</div></div>`;
+    <div class="kpi-card accent"><div class="kpi-label">Por Cobrar</div><div class="kpi-value" style="font-size:18px">${formatPeso(tpend)}</div><div class="kpi-sub">${appData.ventas.filter(v=>!v.cobrada).length} pendientes</div></div>`;
   let al='';
   if(bajos.length>0) al+=`<div class="alerta alerta-roja">⚠️ <strong>Stock bajo:</strong> ${bajos.slice(0,4).map(p=>p.nombre.split(' ').slice(0,2).join(' ')).join(', ')}${bajos.length>4?' y más':''}</div>`;
   if(tpend>0) al+=`<div class="alerta">⏳ Tenés <strong>${formatPeso(tpend)}</strong> en ventas sin cobrar.</div>`;
@@ -1208,8 +1341,11 @@ function renderDashboard(){
     return (b.fecha||'').localeCompare(a.fecha||'');
   }).slice(0,15);
   document.getElementById('tbodyVentas').innerHTML=rec.length===0?'<tr><td colspan="6" style="text-align:center;padding:12px;opacity:.4">Sin ventas recientes</td></tr>':
-    rec.map(v=>{const tc=v.cliente?.toLowerCase()==='perdida'?'tag-perdida':v.cobrada?'tag-cobrada':'tag-pendiente',tt=v.cliente?.toLowerCase()==='perdida'?'Pérdida':v.cobrada?'Cobrada':'Pendiente';
-      return`<tr><td>${formatFecha(v.fecha)}</td><td title="${v.producto}">${v.producto.length>18?v.producto.slice(0,16)+'…':v.producto}</td><td>${v.cantidad}</td><td><strong>${formatPeso(v.total)}</strong></td><td><span class="tag ${tc}">${tt}</span></td><td><button class="btn-icon" onclick="abrirEditarVenta('${v.id}')" title="Editar">✏️</button></td></tr>`;}).join('');
+    rec.map(v=>{
+      const parcial = !v.cobrada && v.montoCobrado > 0;
+      const tc = v.cliente?.toLowerCase()==='perdida'?'tag-perdida': parcial?'tag-parcial': v.cobrada?'tag-cobrada':'tag-pendiente';
+      const tt = v.cliente?.toLowerCase()==='perdida'?'Pérdida': parcial?`💛 ${formatPeso(v.montoCobrado)}/${formatPeso(v.total)}`: v.cobrada?'Cobrada':'Pendiente';
+      return`<tr><td>${formatFecha(v.fecha)}</td><td title="${v.producto}">${v.producto.length>18?v.producto.slice(0,16)+'…':v.producto}</td><td>${v.cantidad}</td><td><strong>${formatPeso(v.total)}</strong></td><td><span class="tag ${tc}" style="white-space:nowrap">${tt}</span></td><td><button class="btn-icon" onclick="abrirEditarVenta('${v.id}')" title="Editar">✏️</button></td></tr>`;}).join('');
   const cnt={};appData.ventas.forEach(v=>{if(!cnt[v.producto])cnt[v.producto]={qty:0};cnt[v.producto].qty+=v.cantidad;});
   const top=Object.entries(cnt).sort((a,b)=>b[1].qty-a[1].qty).slice(0,5);
   const mx=top[0]?.[1]?.qty||1;
@@ -1222,6 +1358,8 @@ function renderDashboard(){
 function renderStock(){
   const q=(document.getElementById('stockSearch')?.value||'').toLowerCase();
   const thr=appData.config.stockThreshold;
+  const custom=appData.productosCustom||[];
+
   function rg(prods,cid){
     const c=document.getElementById(cid);
     const f=prods.filter(p=>!q||normalizar(p.nombre).includes(q));
@@ -1231,8 +1369,20 @@ function renderStock(){
       return`<div class="stock-item"><div class="stock-name" title="${p.nombre}">${p.nombre}</div><div class="stock-bar-bg"><div class="stock-bar ${bc}" style="width:${Math.max(pct,4)}%"></div></div><div class="stock-qty ${qc}">${qty}</div></div>`;}).join('');
   }
   rg(PRODUCTOS_YERBAS,'stockYerbas');rg(PRODUCTOS_MATES,'stockMates');rg(PRODUCTOS_BOMBILLAS,'stockBombillas');rg(PRODUCTOS_CANASTAS,'stockCanastas');
-  const cs=TODOS_LOS_PRODUCTOS.filter(p=>getStockActual(p.nombre)>0);
-  const vt=TODOS_LOS_PRODUCTOS.reduce((s,p)=>s+Math.max(0,getStockActual(p.nombre))*p.costoBase,0);
+
+  // Productos custom en su propia sección
+  const seccion = document.getElementById('stockCustomSection');
+  if(custom.length > 0){
+    seccion.style.display='block';
+    rg(custom,'stockCustom');
+  } else {
+    seccion.style.display='none';
+  }
+
+  // KPIs usando todos los productos (base + custom)
+  const todos = getTodosProductosMerged();
+  const cs=todos.filter(p=>getStockActual(p.nombre)>0);
+  const vt=todos.reduce((s,p)=>s+Math.max(0,getStockActual(p.nombre))*(p.costoBase||0),0);
   document.getElementById('stockTotalItems').textContent=cs.length;
   document.getElementById('stockValorTotal').textContent=formatPeso(vt);
 }
@@ -1503,24 +1653,42 @@ function actualizarMargenPreview(){
     pre.style.display='flex'; pre.style.background=mg>=20?'var(--verde)':mg>=10?'#b36a00':'var(--naranja)';
   }else{pre.style.display='none';}
 }
+function sugerirCodigo(){
+  const cat = document.getElementById('prodCategoria').value;
+  const prefijos = {Yerbas:1000, Mates:2000, Bombillas:3000, Canastas:4000};
+  const base = prefijos[cat] || 1000;
+  // Buscar el código más alto ya usado en esa categoría
+  const usados = getTodosProductosMerged()
+    .filter(p=>p.categoria===cat && p.codigo)
+    .map(p=>p.codigo);
+  const siguiente = usados.length > 0 ? Math.max(...usados) + 1 : base + 1;
+  document.getElementById('prodCodigo').value = siguiente;
+}
 async function guardarProducto(){
   const nombre=document.getElementById('prodNombre').value.trim(),
         categoria=document.getElementById('prodCategoria').value,
         vta=parseFloat(document.getElementById('prodPrecioVenta').value)||0,
         cto=parseFloat(document.getElementById('prodCostoBase').value)||0;
+  const codigoInput = parseInt(document.getElementById('prodCodigo').value)||0;
   if(!nombre){toast('⚠️ Escribí el nombre');return;}
   if(vta<=0){toast('⚠️ Precio debe ser mayor a 0');return;}
   if(getTodosProductosMerged().some(p=>normalizar(p.nombre)===normalizar(nombre))){toast('⚠️ Ya existe ese producto');return;}
+  // Calcular código si no se ingresó
+  const prefijos = {Yerbas:1000, Mates:2000, Bombillas:3000, Canastas:4000};
+  const base = prefijos[categoria] || 1000;
+  const usados = getTodosProductosMerged().filter(p=>p.categoria===categoria&&p.codigo).map(p=>p.codigo);
+  const codigo = codigoInput || (usados.length > 0 ? Math.max(...usados)+1 : base+1);
   if(!appData.productosCustom)appData.productosCustom=[];
   const id=Date.now().toString();
-  appData.productosCustom.push({nombre,categoria,precioVenta:vta,costoBase:cto,id,custom:true});
-  sbUpsert('productos_custom',{id,nombre,categoria,precio_venta:vta,costo_base:cto});
+  appData.productosCustom.push({nombre,categoria,precioVenta:vta,costoBase:cto,codigo,id,custom:true});
+  sbUpsert('productos_custom',{id,nombre,categoria,precio_venta:vta,costo_base:cto,codigo});
   reconstruirSelectores();
   document.getElementById('prodNombre').value='';
   document.getElementById('prodPrecioVenta').value='';
   document.getElementById('prodCostoBase').value='';
+  document.getElementById('prodCodigo').value='';
   document.getElementById('prodMargenPreview').style.display='none';
-  toast('✅ Producto agregado!'); renderListaProductos();
+  toast(`✅ Producto agregado con código ${codigo}`); renderListaProductos();
 }
 async function eliminarProductoCustom(id){
   if(!confirm('¿Eliminar este producto?'))return;
@@ -1537,7 +1705,7 @@ function renderListaProductos(){
   if(!f.length){c.innerHTML='<div class="empty-state"><span class="emoji">🔍</span>Sin resultados</div>';return;}
   c.innerHTML=f.map(p=>{
     const mg=p.costoBase>0?(p.precioVenta-p.costoBase)/p.precioVenta*100:0,mc=mg>=20?'margen-good':mg>=10?'margen-mid':'margen-low',cc=p.categoria==='Yerbas'?'cat-yerbas':p.categoria==='Mates'?'cat-mates':p.categoria==='Bombillas'?'cat-bombillas':'cat-canastas';
-    return`<div class="prod-card"><div class="prod-card-info"><div class="prod-card-name" title="${p.nombre}">${p.nombre}</div><div class="prod-card-sub"><span class="cat-badge ${cc}">${p.categoria}</span>&nbsp;Stock: <strong>${getStockActual(p.nombre)}</strong>&nbsp;<span class="margen-badge ${mc}">${mg.toFixed(1)}%</span>${p.custom?'&nbsp;<span style="background:#e8f4ff;color:#004085;font-size:9px;padding:1px 5px;border-radius:4px;font-weight:700">NUEVO</span>':''}</div></div><div class="prod-card-precios"><div class="vta">${formatPeso(p.precioVenta)}</div><div class="cto">costo: ${formatPeso(p.costoBase)}</div></div>${p.custom?`<button class="btn-icon" onclick="eliminarProductoCustom('${p.id}')">🗑</button>`:''}</div>`;}).join('');
+    return`<div class="prod-card"><div class="prod-card-info"><div class="prod-card-name" title="${p.nombre}">${p.codigo?`<span style="font-size:9px;font-weight:700;color:var(--gris2);opacity:.6;margin-right:4px">#${p.codigo}</span>`:''}${p.nombre}</div><div class="prod-card-sub"><span class="cat-badge ${cc}">${p.categoria}</span>&nbsp;Stock: <strong>${getStockActual(p.nombre)}</strong>&nbsp;<span class="margen-badge ${mc}">${mg.toFixed(1)}%</span>${p.custom?'&nbsp;<span style="background:#e8f4ff;color:#004085;font-size:9px;padding:1px 5px;border-radius:4px;font-weight:700">NUEVO</span>':''}</div></div><div class="prod-card-precios"><div class="vta">${formatPeso(p.precioVenta)}</div><div class="cto">costo: ${formatPeso(p.costoBase)}</div></div>${p.custom?`<button class="btn-icon" onclick="eliminarProductoCustom('${p.id}')">🗑</button>`:''}</div>`;}).join('');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1584,6 +1752,13 @@ async function resetDatos(){
 // TOAST
 // ══════════════════════════════════════════════════════════════
 function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2400);}
+
+function toastConEditar(ventaId, msg){
+  const el=document.getElementById('toast');
+  el.innerHTML=`${msg} <button onclick="abrirEditarVenta('${ventaId}');this.closest('#toast').classList.remove('show')" style="background:var(--verde3);color:var(--gris);border:none;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer;margin-left:6px">✏️ Editar</button>`;
+  el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),5000);
+}
 </script>
 </body>
 </html>
