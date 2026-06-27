@@ -179,7 +179,26 @@ textarea{resize:vertical;min-height:50px;}
 .modal-btn-cancel{background:rgba(38,70,83,.12);color:var(--gris);}
 .modal-btn-confirm{background:var(--verde);color:var(--crema);}
 
-/* GASTO TIPO BADGE */
+/* PEDIDO CARD */
+.pedido-card{background:white;border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 2px 8px var(--sombra);border-left:3px solid var(--amarillo);}
+.pedido-card.confirmado{border-left-color:var(--verde2);}
+.pedido-card.cancelado{border-left-color:var(--naranja);opacity:.6;}
+.pedido-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
+.pedido-cliente{font-size:14px;font-weight:700;color:var(--gris);}
+.pedido-ref{font-size:10px;color:var(--gris2);opacity:.5;margin-top:1px;}
+.pedido-tiempo{font-size:10px;color:var(--gris2);opacity:.6;text-align:right;}
+.pedido-items{font-size:12px;color:var(--gris2);margin-bottom:10px;line-height:1.7;}
+.pedido-item-row{display:flex;justify-content:space-between;}
+.pedido-total{font-size:15px;font-weight:700;color:var(--verde);margin-bottom:10px;}
+.pedido-notas{font-size:11px;color:var(--gris2);opacity:.7;font-style:italic;margin-bottom:8px;}
+.pedido-btns{display:flex;gap:6px;}
+.pedido-btns button{flex:1;padding:8px;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;}
+.btn-confirmar{background:var(--verde);color:white;}
+.btn-cancelar{background:rgba(231,111,81,.15);color:var(--naranja);}
+.pedido-estado{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;text-transform:uppercase;}
+.estado-pendiente{background:#fff3cd;color:#856404;}
+.estado-confirmado{background:#d1fadf;color:#155724;}
+.estado-cancelado{background:#fde8e8;color:#7d0000;}
 .gasto-badge{display:inline-block;padding:1px 7px;border-radius:4px;font-size:9px;font-weight:700;text-transform:uppercase;}
 .gb-comerc{background:#fde8d8;color:#8b3a00;}
 .gb-admin{background:#e3eaf5;color:#1a3a6b;}
@@ -212,6 +231,7 @@ textarea{resize:vertical;min-height:50px;}
   <button class="tab active" onclick="showTab('dashboard',this)"><span class="tab-icon">📊</span>Dashboard</button>
   <button class="tab" onclick="showTab('venta',this)"><span class="tab-icon">💰</span>Venta</button>
   <button class="tab" onclick="showTab('compra',this)"><span class="tab-icon">🛒</span>Compra</button>
+  <button class="tab" onclick="showTab('pedidos',this)"><span class="tab-icon">📬</span>Pedidos</button>
   <button class="tab" onclick="showTab('gastos',this)"><span class="tab-icon">📝</span>Gastos</button>
   <button class="tab" onclick="showTab('historial',this)"><span class="tab-icon">📋</span>Historial</button>
   <button class="tab" onclick="showTab('stock',this)"><span class="tab-icon">📦</span>Stock</button>
@@ -430,7 +450,22 @@ textarea{resize:vertical;min-height:50px;}
 </div>
 
 <!-- PRODUCTOS -->
-<div id="panel-productos" class="panel">
+<!-- PEDIDOS -->
+<div id="panel-pedidos" class="panel">
+  <div class="kpi-grid" style="margin-bottom:12px">
+    <div class="kpi-card accent"><div class="kpi-label">⏳ Pendientes</div><div class="kpi-value" id="pedidosPendientesCount">—</div></div>
+    <div class="kpi-card accent3"><div class="kpi-label">✅ Confirmados hoy</div><div class="kpi-value" id="pedidosConfirmadosCount">—</div></div>
+  </div>
+  <div class="filter-pills" style="margin-bottom:10px">
+    <button class="pill active" data-estado="pendiente" onclick="setPedidoFiltro(this)">⏳ Pendientes</button>
+    <button class="pill" data-estado="confirmado" onclick="setPedidoFiltro(this)">✅ Confirmados</button>
+    <button class="pill" data-estado="cancelado" onclick="setPedidoFiltro(this)">❌ Cancelados</button>
+    <button class="pill" data-estado="" onclick="setPedidoFiltro(this)">Todos</button>
+  </div>
+  <div id="pedidosLista"></div>
+</div>
+
+<!-- PRODUCTOS -->
   <div class="sec-title">Nuevo Producto <span class="line"></span></div>
   <div class="form-row">
     <div><label>Nombre del Producto</label><input type="text" id="prodNombre" placeholder="Ej: Canarias Naranja 1Kg"></div>
@@ -969,6 +1004,7 @@ function showTab(name, el) {
   if(name==='venta')     {reconstruirSelectores();renderVentasPendientes();}
   if(name==='compra')    {reconstruirSelectores();renderUltimasCompras();}
   if(name==='gastos')    renderGastos();
+  if(name==='pedidos')   renderPedidos();
   if(name==='historial') {historialMode='ventas';histPagina=0;renderHistorial();}
   if(name==='productos') renderListaProductos();
 }
@@ -1334,6 +1370,13 @@ function renderDashboard(){
   if(tpend>0) al+=`<div class="alerta">⏳ Tenés <strong>${formatPeso(tpend)}</strong> en ventas sin cobrar.</div>`;
   const tgastPendDash=(appData.gastos||[]).filter(g=>!g.pagado).reduce((s,g)=>s+(parseFloat(g.monto)||0),0);
   if(tgastPendDash>0) al+=`<div class="alerta">📝 Tenés <strong>${formatPeso(tgastPendDash)}</strong> en gastos pendientes de pago.</div>`;
+  // Pedidos pendientes de la tienda
+  sbGet('pedidos','estado=eq.pendiente&select=id').then(r=>{
+    if(r.length>0){
+      const alertaEl = document.getElementById('alertasContainer');
+      alertaEl.innerHTML += `<div class="alerta alerta-roja" style="cursor:pointer" onclick="document.querySelectorAll('.tab')[3].click()">📬 <strong>${r.length} pedido(s) nuevos</strong> de la tienda sin confirmar → <u>Ver pedidos</u></div>`;
+    }
+  });
   document.getElementById('alertasContainer').innerHTML=al;
   const rec=[...appData.ventas].sort((a,b)=>{
     if(a.fecha==='Historica'&&b.fecha!=='Historica') return 1;
@@ -1749,6 +1792,131 @@ async function resetDatos(){
   appData.compras=appData.compras.filter(c=>c.historica);
   renderDashboard(); toast('🔄 Datos nuevos reseteados');
 }
+
+// ══════════════════════════════════════════════════════════════
+// PEDIDOS
+// ══════════════════════════════════════════════════════════════
+let pedidoFiltro = 'pendiente';
+let pedidosData  = [];
+
+function setPedidoFiltro(el){
+  document.querySelectorAll('#panel-pedidos .pill').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  pedidoFiltro = el.dataset.estado;
+  renderPedidos();
+}
+
+async function renderPedidos(){
+  document.getElementById('pedidosLista').innerHTML = '<div class="empty-state"><span class="emoji">⏳</span>Cargando pedidos...</div>';
+  const todos = await sbGet('pedidos','order=created_at.desc&limit=100');
+  pedidosData  = todos;
+
+  // KPIs
+  const pendientes   = todos.filter(p=>p.estado==='pendiente').length;
+  const hoy = new Date();
+  const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(hoy.getDate()).padStart(2,'0')}`;
+  const confirmadosHoy = todos.filter(p=>p.estado==='confirmado'&&(p.created_at||'').slice(0,10)===hoyStr).length;
+  document.getElementById('pedidosPendientesCount').textContent = pendientes;
+  document.getElementById('pedidosConfirmadosCount').textContent = confirmadosHoy;
+
+  const lista = pedidoFiltro ? todos.filter(p=>p.estado===pedidoFiltro) : todos;
+  const el = document.getElementById('pedidosLista');
+
+  if(!lista.length){
+    el.innerHTML = `<div class="empty-state"><span class="emoji">📬</span>${pedidoFiltro==='pendiente'?'No hay pedidos pendientes':'Sin pedidos'}</div>`;
+    return;
+  }
+
+  el.innerHTML = lista.map(p=>{
+    const items = Array.isArray(p.items) ? p.items : JSON.parse(p.items||'[]');
+    const fecha = new Date(p.created_at);
+    const tiempoStr = fecha.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}) + ' ' + fecha.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+    const esPendiente = p.estado==='pendiente';
+    return `<div class="pedido-card ${p.estado}">
+      <div class="pedido-header">
+        <div>
+          <div class="pedido-cliente">👤 ${p.cliente_nombre}</div>
+          ${p.cliente_tel?`<div class="pedido-ref">📱 ${p.cliente_tel}</div>`:''}
+          <div class="pedido-ref">Ref #${p.id.slice(-6)}</div>
+        </div>
+        <div style="text-align:right">
+          <div><span class="pedido-estado estado-${p.estado}">${p.estado}</span></div>
+          <div class="pedido-tiempo">${tiempoStr}</div>
+        </div>
+      </div>
+      <div class="pedido-items">
+        ${items.map(i=>`<div class="pedido-item-row"><span>${i.qty}x ${i.nombre}</span><span>${formatPeso(i.subtotal)}</span></div>`).join('')}
+      </div>
+      ${p.notas?`<div class="pedido-notas">📝 ${p.notas}</div>`:''}
+      <div class="pedido-total">💰 Total: ${formatPeso(p.total)}</div>
+      ${esPendiente?`<div class="pedido-btns">
+        <button class="btn-confirmar" onclick="confirmarPedido('${p.id}')">✅ Confirmar y registrar venta</button>
+        <button class="btn-cancelar" onclick="cancelarPedido('${p.id}')">❌ Cancelar</button>
+      </div>`:''}
+    </div>`;
+  }).join('');
+}
+
+async function confirmarPedido(pedidoId){
+  const pedido = pedidosData.find(p=>p.id===pedidoId);
+  if(!pedido) return;
+  if(!confirm(`¿Confirmar el pedido de ${pedido.cliente_nombre}?\nSe van a registrar ${pedido.items.length} venta(s) y descontar del stock.`)) return;
+
+  const items = Array.isArray(pedido.items) ? pedido.items : JSON.parse(pedido.items||'[]');
+  const ahora = new Date();
+  const fecha = `${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}-${String(ahora.getDate()).padStart(2,'0')}`;
+
+  // Registrar una venta por cada item
+  for(const item of items){
+    const id = Date.now().toString() + '_' + Math.random().toString(36).slice(2,6);
+    const venta = {
+      id, fecha,
+      cliente: pedido.cliente_nombre,
+      producto: item.nombre,
+      cantidad: item.qty,
+      precioUnit: item.precio,
+      total: item.subtotal,
+      cobrada: false, // pendiente de cobro
+      montoCobrado: null,
+      notas: `Pedido #${pedidoId.slice(-6)} — Tienda online`,
+      historica: false
+    };
+    appData.ventas.push(venta);
+    await sbUpsert('ventas',{
+      id, fecha,
+      cliente: pedido.cliente_nombre,
+      producto: item.nombre,
+      cantidad: item.qty,
+      precio_unit: item.precio,
+      total: item.subtotal,
+      cobrada: false,
+      monto_cobrado: null,
+      notas: venta.notas,
+      historica: false
+    });
+  }
+
+  // Marcar pedido como confirmado
+  await sbUpdate('pedidos', pedidoId, {estado:'confirmado'});
+
+  toast(`✅ Pedido confirmado — ${items.length} venta(s) registradas`);
+  renderPedidos();
+  renderDashboard();
+  renderVentasPendientes();
+}
+
+async function cancelarPedido(pedidoId){
+  if(!confirm('¿Cancelar este pedido?')) return;
+  await sbUpdate('pedidos', pedidoId, {estado:'cancelado'});
+  toast('❌ Pedido cancelado');
+  renderPedidos();
+}
+
+// Auto-refresh pedidos cada 60 segundos si el tab está activo
+setInterval(()=>{
+  const panel = document.getElementById('panel-pedidos');
+  if(panel && panel.classList.contains('active')) renderPedidos();
+}, 60000);
 
 // ══════════════════════════════════════════════════════════════
 // TOAST

@@ -396,7 +396,7 @@ function actualizarCarritoUI(){
 }
 
 // ── WHATSAPP ────────────────────────────────────────────────
-function enviarWhatsApp(){
+async function enviarWhatsApp(){
   const nombre = document.getElementById('clienteNombre').value.trim();
   const tel    = document.getElementById('clienteTel').value.trim();
   const notas  = document.getElementById('clienteNotas').value.trim();
@@ -407,11 +407,24 @@ function enviarWhatsApp(){
   const total = carrito.reduce((s,c)=>s+c.precio*c.qty,0);
   const linea = '━━━━━━━━━━━━━━━━━━━━━';
 
+  // Guardar pedido en Supabase
+  const pedidoId = Date.now().toString();
+  const items = carrito.map(c=>({
+    nombre: c.nombre, codigo: c.codigo||null,
+    qty: c.qty, precio: c.precio, subtotal: c.precio*c.qty
+  }));
+  await fetch(`${SUPA_URL}/rest/v1/pedidos`, {
+    method:'POST',
+    headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
+    body: JSON.stringify({id:pedidoId, cliente_nombre:nombre, cliente_tel:tel||null, notas:notas||null, items, total, estado:'pendiente'})
+  });
+
   let msg = '';
   msg += `🌿 *ADN MATERO — NUEVO PEDIDO* 🌿\n`;
   msg += `${linea}\n\n`;
   msg += `👤 *Cliente:* ${nombre}\n`;
   if(tel) msg += `📱 *Teléfono:* ${tel}\n`;
+  msg += `*Ref:* #${pedidoId.slice(-6)}\n`;
   msg += `\n🛒 *Productos:*\n`;
   carrito.forEach((c,i)=>{
     msg += `\n${i+1}. *${c.nombre}*\n`;
@@ -425,6 +438,16 @@ function enviarWhatsApp(){
 
   const url = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
   window.open(url, '_blank');
+
+  // Limpiar carrito
+  carrito = [];
+  actualizarCarritoUI();
+  document.getElementById('carritoDrawer').style.display='none';
+  document.getElementById('clienteNombre').value='';
+  document.getElementById('clienteTel').value='';
+  document.getElementById('clienteNotas').value='';
+  renderProductos();
+  toast('✅ Pedido enviado!');
 }
 
 // ── HELPERS ─────────────────────────────────────────────────
