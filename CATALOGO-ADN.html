@@ -199,7 +199,68 @@ let editFotosNuevas=[];
 let editFotosEliminar=[];
 
 // ── INIT ──────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', cargarCatalogo);
+// ── PRODUCTOS BASE (sincronizados con ADN-MATERO) ────────────
+const PRODUCTOS_BASE = [
+  // YERBAS
+  {codigo:1001,nombre:'Baldo Clásica 1Kg',categoria:'Yerbas',precio:10000},
+  {codigo:1002,nombre:'Canarias Clásica 1Kg',categoria:'Yerbas',precio:10200},
+  {codigo:1003,nombre:'Canarias Edición Especial 1Kg',categoria:'Yerbas',precio:10700},
+  {codigo:1004,nombre:'Canarias Té Verde y Jengibre 1Kg',categoria:'Yerbas',precio:10700},
+  {codigo:1005,nombre:'Canarias Serena 1Kg',categoria:'Yerbas',precio:10700},
+  {codigo:1006,nombre:'Rei Verde Tradicional 1Kg',categoria:'Yerbas',precio:7500},
+  {codigo:1007,nombre:'Rei Verde Clásica 1Kg',categoria:'Yerbas',precio:6500},
+  {codigo:1008,nombre:'Rei Verde Premium 1Kg',categoria:'Yerbas',precio:9000},
+  {codigo:1009,nombre:'Libre Clásica 1Kg',categoria:'Yerbas',precio:6000},
+  {codigo:1010,nombre:'Sara Tradicional 1Kg',categoria:'Yerbas',precio:11700},
+  {codigo:1011,nombre:'Sara Extra Suave 1Kg',categoria:'Yerbas',precio:11700},
+  {codigo:1012,nombre:'Sara Coco 0,5 Kg',categoria:'Yerbas',precio:7800},
+  // MATES
+  {codigo:2001,nombre:'Imperial cincelado',categoria:'Mates',precio:20000},
+  {codigo:2002,nombre:'Bocón algarrobo',categoria:'Mates',precio:10000},
+  {codigo:2003,nombre:'Ranchero',categoria:'Mates',precio:19000},
+  {codigo:2004,nombre:'Torpedo al lacre',categoria:'Mates',precio:30000},
+  {codigo:2005,nombre:'Torpedo al lacre con anillo',categoria:'Mates',precio:45000},
+  {codigo:2006,nombre:'Imperial combinado',categoria:'Mates',precio:17000},
+  {codigo:2007,nombre:'Imperial algarrobo',categoria:'Mates',precio:15000},
+  {codigo:2008,nombre:'Imperial labrado',categoria:'Mates',precio:25000},
+  {codigo:2009,nombre:'Imperial cincelado labrado',categoria:'Mates',precio:19000},
+  {codigo:2010,nombre:'Criollo liso base con dije',categoria:'Mates',precio:16000},
+  {codigo:2011,nombre:'Coquito',categoria:'Mates',precio:18000},
+  // BOMBILLAS
+  {codigo:3001,nombre:'Pico loro acero',categoria:'Bombillas',precio:3500},
+  {codigo:3002,nombre:'Pico loro acero c/dije',categoria:'Bombillas',precio:4500},
+  {codigo:3003,nombre:'Pico loro alpaca',categoria:'Bombillas',precio:6000},
+  {codigo:3004,nombre:'Pico loro acero cincelado',categoria:'Bombillas',precio:5000},
+  {codigo:3005,nombre:'Bombillón enroscado',categoria:'Bombillas',precio:15000},
+  {codigo:3006,nombre:'Bombillón pico rey cincelado',categoria:'Bombillas',precio:19000},
+  {codigo:3007,nombre:'Bombillón corona',categoria:'Bombillas',precio:20000},
+  {codigo:3008,nombre:'Bombillas semi recto acero cin.',categoria:'Bombillas',precio:3700},
+  // CANASTAS
+  {codigo:4001,nombre:'Canasta de cuero',categoria:'Canastas',precio:28500},
+  {codigo:4002,nombre:'Canasta ecocuero',categoria:'Canastas',precio:12000},
+  {codigo:4003,nombre:'Yerbera gamuzada',categoria:'Canastas',precio:5000},
+  {codigo:4004,nombre:'Termo total black',categoria:'Canastas',precio:15000},
+  {codigo:4005,nombre:'Termo media manija',categoria:'Canastas',precio:0},
+];
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await importarProductosBase();
+  await cargarCatalogo();
+});
+
+async function importarProductosBase(){
+  // Verificar cuáles ya existen por código
+  const existentes = await sbGet('catalogo','select=codigo');
+  const codigosExistentes = new Set(existentes.map(p=>p.codigo));
+  const nuevos = PRODUCTOS_BASE.filter(p=>!codigosExistentes.has(p.codigo));
+  if(nuevos.length === 0) return;
+  // Insertar los que faltan
+  for(const p of nuevos){
+    const id = 'base_' + p.codigo;
+    await sbUpsert('catalogo',{id, nombre:p.nombre, categoria:p.categoria, precio:p.precio, codigo:p.codigo, orden:p.codigo, activo:true});
+  }
+  console.log(`Importados ${nuevos.length} productos base`);
+}
 
 async function cargarCatalogo(){
   document.getElementById('listaCatalogo').innerHTML='<div class="loading">Cargando...</div>';
