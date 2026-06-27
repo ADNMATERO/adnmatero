@@ -405,15 +405,23 @@ function enviarWhatsApp(){
   if(!carrito.length){ toast('⚠️ El carrito está vacío'); return; }
 
   const total = carrito.reduce((s,c)=>s+c.precio*c.qty,0);
-  const items = carrito.map(c=>`• ${c.nombre} x${c.qty} = ${formatPeso(c.precio*c.qty)}`).join('\n');
+  const linea = '━━━━━━━━━━━━━━━━━━━━━';
 
-  let msg = `🌿 *NUEVO PEDIDO — ADN MATERO*\n\n`;
+  let msg = '';
+  msg += `🌿 *ADN MATERO — NUEVO PEDIDO* 🌿\n`;
+  msg += `${linea}\n\n`;
   msg += `👤 *Cliente:* ${nombre}\n`;
   if(tel) msg += `📱 *Teléfono:* ${tel}\n`;
-  msg += `\n📦 *Detalle del pedido:*\n${items}\n`;
-  msg += `\n💰 *Total estimado: ${formatPeso(total)}*\n`;
+  msg += `\n🛒 *Productos:*\n`;
+  carrito.forEach((c,i)=>{
+    msg += `\n${i+1}. *${c.nombre}*\n`;
+    msg += `   ${c.qty} u x ${formatPeso(c.precio)} = *${formatPeso(c.precio*c.qty)}*\n`;
+  });
+  msg += `\n${linea}\n`;
+  msg += `💰 *TOTAL: ${formatPeso(total)}*\n`;
+  msg += `${linea}\n`;
   if(notas) msg += `\n📝 *Notas:* ${notas}\n`;
-  msg += `\n_Pedido enviado desde la tienda online de ADN Matero_`;
+  msg += `\n_Tienda online ADN Matero — Córdoba_ 🤝`;
 
   const url = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
   window.open(url, '_blank');
