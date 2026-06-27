@@ -1368,18 +1368,20 @@ function renderStock(){
     c.innerHTML=f.map(p=>{const qty=getStockActual(p.nombre),pct=Math.min(100,Math.round(qty/mx*100)),bc=qty<=thr?'bar-low':qty<=thr*2?'bar-warn':'bar-ok',qc=qty<=thr?'qty-low':qty<=thr*2?'qty-warn':'';
       return`<div class="stock-item"><div class="stock-name" title="${p.nombre}">${p.nombre}</div><div class="stock-bar-bg"><div class="stock-bar ${bc}" style="width:${Math.max(pct,4)}%"></div></div><div class="stock-qty ${qc}">${qty}</div></div>`;}).join('');
   }
-  rg(PRODUCTOS_YERBAS,'stockYerbas');rg(PRODUCTOS_MATES,'stockMates');rg(PRODUCTOS_BOMBILLAS,'stockBombillas');rg(PRODUCTOS_CANASTAS,'stockCanastas');
 
-  // Productos custom en su propia sección
+  // Mezclar custom con su categoría correspondiente
+  const yerbas   = [...PRODUCTOS_YERBAS,   ...custom.filter(p=>p.categoria==='Yerbas')];
+  const mates    = [...PRODUCTOS_MATES,    ...custom.filter(p=>p.categoria==='Mates')];
+  const bombillas= [...PRODUCTOS_BOMBILLAS,...custom.filter(p=>p.categoria==='Bombillas')];
+  const canastas = [...PRODUCTOS_CANASTAS, ...custom.filter(p=>p.categoria==='Canastas')];
+
+  rg(yerbas,'stockYerbas'); rg(mates,'stockMates'); rg(bombillas,'stockBombillas'); rg(canastas,'stockCanastas');
+
+  // Ocultar sección separada
   const seccion = document.getElementById('stockCustomSection');
-  if(custom.length > 0){
-    seccion.style.display='block';
-    rg(custom,'stockCustom');
-  } else {
-    seccion.style.display='none';
-  }
+  if(seccion) seccion.style.display='none';
 
-  // KPIs usando todos los productos (base + custom)
+  // KPIs
   const todos = getTodosProductosMerged();
   const cs=todos.filter(p=>getStockActual(p.nombre)>0);
   const vt=todos.reduce((s,p)=>s+Math.max(0,getStockActual(p.nombre))*(p.costoBase||0),0);
@@ -1589,10 +1591,10 @@ function renderHistorialVentas(q){
   document.getElementById('histFiltros').innerHTML=['Todas','Yerbas','Mates','Bombillas','Canastas','Cobradas','Pendientes'].map(c=>
     `<button class="pill${fa===c?' active':''}" data-filtro="${c}" onclick="setHistFiltro(this)">${c}</button>`).join('');
   let datos=[...appData.ventas];
-  if(fa==='Yerbas')     datos=datos.filter(v=>PRODUCTOS_YERBAS.some(p=>normalizar(p.nombre)===normalizar(v.producto)));
-  if(fa==='Mates')      datos=datos.filter(v=>PRODUCTOS_MATES.some(p=>normalizar(p.nombre)===normalizar(v.producto)));
-  if(fa==='Bombillas')  datos=datos.filter(v=>PRODUCTOS_BOMBILLAS.some(p=>normalizar(p.nombre)===normalizar(v.producto)));
-  if(fa==='Canastas')   datos=datos.filter(v=>PRODUCTOS_CANASTAS.some(p=>normalizar(p.nombre)===normalizar(v.producto)));
+  if(fa==='Yerbas')     datos=datos.filter(v=>[...PRODUCTOS_YERBAS,...(appData.productosCustom||[]).filter(p=>p.categoria==='Yerbas')].some(p=>normalizar(p.nombre)===normalizar(v.producto)));
+  if(fa==='Mates')      datos=datos.filter(v=>[...PRODUCTOS_MATES,...(appData.productosCustom||[]).filter(p=>p.categoria==='Mates')].some(p=>normalizar(p.nombre)===normalizar(v.producto)));
+  if(fa==='Bombillas')  datos=datos.filter(v=>[...PRODUCTOS_BOMBILLAS,...(appData.productosCustom||[]).filter(p=>p.categoria==='Bombillas')].some(p=>normalizar(p.nombre)===normalizar(v.producto)));
+  if(fa==='Canastas')   datos=datos.filter(v=>[...PRODUCTOS_CANASTAS,...(appData.productosCustom||[]).filter(p=>p.categoria==='Canastas')].some(p=>normalizar(p.nombre)===normalizar(v.producto)));
   if(fa==='Cobradas')   datos=datos.filter(v=>v.cobrada);
   if(fa==='Pendientes') datos=datos.filter(v=>!v.cobrada);
   if(q) datos=datos.filter(v=>normalizar(v.producto).includes(q)||normalizar(v.cliente||'').includes(q)||(v.fecha||'').includes(q));
