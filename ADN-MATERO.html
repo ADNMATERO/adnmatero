@@ -903,15 +903,19 @@ async function cargarDatos() {
     if(cfgArr.length > 0){
       const cfg = cfgArr[0];
       appData.config = {
-        capital: cfg.capital, adelantos: cfg.adelantos,
-        saldoCaja: cfg.saldo_caja, stockThreshold: cfg.stock_threshold
+        capital: cfg.capital || 678000,
+        adelantos: cfg.adelantos || 0,
+        saldoCaja: cfg.saldo_caja || 0,
+        stockThreshold: cfg.stock_threshold || 3,
+        historicos_cargados: cfg.historicos_cargados || false
       };
     }
 
-    // Solo cargar históricos si nunca se hizo (verificar en config)
-    if(cfgArr.length === 0 || !cfgArr[0].historicos_cargados){
+    // Solo cargar históricos si nunca se hizo
+    if(!appData.config.historicos_cargados){
       mostrarCargando('Primera vez — cargando datos históricos…');
-      await cargarHistoricos();
+      await cargarHistoricosYFinalizar();
+      return; // cargarHistoricosYFinalizar llama a renderAll
     }
 
   } catch(e) {
@@ -926,7 +930,7 @@ async function cargarDatos() {
   ocultarCargando();
 }
 
-async function cargarHistoricos(){
+async function cargarHistoricosYFinalizar(){
   const ventasRows = VENTAS_HISTORICAS.map((v,i)=>({
     id:'h'+i, fecha:v.fecha, cliente:v.cliente||'',
     producto:v.producto, cantidad:v.cantidad,
@@ -945,9 +949,25 @@ async function cargarHistoricos(){
   for(let i=0;i<comprasRows.length;i+=50){
     await sbUpsert('compras', comprasRows.slice(i,i+50));
   }
-  // Marcar que los históricos ya fueron cargados
-  await sbUpsert('config', {id:'main', historicos_cargados: true});
-  await cargarDatos();
+  // Marcar históricos como cargados
+  await sbUpsert('config', {id:'main', historicos_cargados: true,
+    capital:678000, adelantos:0, saldo_caja:0, stock_threshold:3});
+  // Actualizar appData con los históricos
+  appData.ventas = VENTAS_HISTORICAS.map((v,i)=>({
+    id:'h'+i, fecha:v.fecha, cliente:v.cliente||'',
+    producto:v.producto, cantidad:v.cantidad,
+    precioUnit:v.precioUnit, total:v.total,
+    cobrada:v.cobrada!==false, notas:v.notas||'', historica:true
+  }));
+  appData.compras = COMPRAS_HISTORICAS.map((c,i)=>({
+    id:'hc'+i, fecha:c.fecha, proveedor:c.proveedor||'',
+    producto:c.producto, cantidad:c.cantidad,
+    costoUnit:c.costoUnit, total:c.total,
+    notas:'', historica:true
+  }));
+  appData.config.historicos_cargados = true;
+  ocultarCargando();
+  renderAll();
 }
   // Recargar
   await cargarDatos();
@@ -973,12 +993,16 @@ async function refrescarDatos(){
       sbGet('gastos','order=created_at.asc&limit=1000'),
       sbGet('productos_custom','order=created_at.asc'),
     ]);
-    appData.ventas = ventas.map(v=>({id:v.id,fecha:v.fecha,cliente:v.cliente||'',producto:v.producto,cantidad:v.cantidad,precioUnit:v.precio_unit,total:v.total,cobrada:v.cobrada,notas:v.notas||'',historica:v.historica}));
-    appData.compras = compras.map(c=>({id:c.id,fecha:c.fecha,proveedor:c.proveedor||'',producto:c.producto,cantidad:c.cantidad,costoUnit:c.costo_unit,total:c.total,notas:c.notas||'',historica:c.historica}));
-    appData.gastos = gastos.map(g=>({id:g.id,fecha:g.fecha,tipo:g.tipo,descripcion:g.descripcion,monto:g.monto,pagado:g.pagado,notas:g.notas||''}));
-    appData.productosCustom = custom.map(p=>({id:p.id,nombre:p.nombre,categoria:p.categoria,precioVenta:p.precio_venta,costoBase:p.costo_base,custom:true}));
+    if(ventas.length > 0)
+      appData.ventas = ventas.map(v=>({id:v.id,fecha:v.fecha,cliente:v.cliente||'',producto:v.producto,cantidad:v.cantidad,precioUnit:v.precio_unit,total:v.total,cobrada:v.cobrada,montoCobrado:v.monto_cobrado||null,notas:v.notas||'',historica:v.historica}));
+    if(compras.length > 0)
+      appData.compras = compras.map(c=>({id:c.id,fecha:c.fecha,proveedor:c.proveedor||'',producto:c.producto,cantidad:c.cantidad,costoUnit:c.costo_unit,total:c.total,notas:c.notas||'',historica:c.historica}));
+    if(gastos.length > 0)
+      appData.gastos = gastos.map(g=>({id:g.id,fecha:g.fecha,tipo:g.tipo,descripcion:g.descripcion,monto:g.monto,pagado:g.pagado,notas:g.notas||''}));
+    if(custom.length > 0)
+      appData.productosCustom = custom.map(p=>({id:p.id,nombre:p.nombre,categoria:p.categoria,precioVenta:p.precio_venta,costoBase:p.costo_base,custom:true}));
     renderDashboard(); renderStock(); renderCaja(); renderMargenes();
-  } catch(e){}
+  } catch(e){ console.error('refrescarDatos:', e); }
 }
 // Auto-refresh cada 30 segundos
 setInterval(refrescarDatos, 30000);
@@ -995,6 +1019,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const d = new Date();
   document.getElementById('headerDate').textContent = d.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'}).replace(/^\w/,c=>c.toUpperCase());
   await cargarDatos();
+  renderAll();
+});
+
+function renderAll(){
   poblarSelectores();
   poblarSelectoresConCustom();
   renderDashboard();
@@ -1003,7 +1031,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderStock();
   renderCaja();
   renderMargenes();
-});
+}
 
 // ══════════════════════════════════════════════════════════════
 // TABS
