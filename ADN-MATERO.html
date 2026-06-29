@@ -863,16 +863,17 @@ function ocultarCargando(){ const el=document.getElementById('loadingOverlay'); 
 async function cargarDatos() {
   mostrarCargando('Conectando con la base de datos…');
   try {
-    // Cargar todo en paralelo
     const [ventas, compras, gastos, custom, cfgArr] = await Promise.all([
-      sbGet('ventas','order=created_at.asc&limit=2000'),
-      sbGet('compras','order=created_at.asc&limit=2000'),
-      sbGet('gastos','order=created_at.asc&limit=1000'),
+      sbGet('ventas','order=created_at.desc&limit=2000'),
+      sbGet('compras','order=created_at.desc&limit=2000'),
+      sbGet('gastos','order=created_at.desc&limit=1000'),
       sbGet('productos_custom','order=created_at.asc'),
       sbGet('config','id=eq.main'),
     ]);
 
-    // Mapear campos snake_case → camelCase para ventas
+    console.log(`📦 Supabase devolvió: ${ventas.length} ventas, ${compras.length} compras, ${gastos.length} gastos`);
+
+    // Siempre mapear, sin importar si viene vacío o no
     appData.ventas = ventas.map(v=>({
       id: v.id, fecha: v.fecha, cliente: v.cliente||'',
       producto: v.producto, cantidad: v.cantidad,
@@ -881,7 +882,6 @@ async function cargarDatos() {
       notas: v.notas||'', historica: v.historica
     }));
 
-    // Mapear compras
     appData.compras = compras.map(c=>({
       id: c.id, fecha: c.fecha, proveedor: c.proveedor||'',
       producto: c.producto, cantidad: c.cantidad,
@@ -911,16 +911,18 @@ async function cargarDatos() {
       };
     }
 
+    console.log(`⚙️ historicos_cargados: ${appData.config.historicos_cargados}`);
+
     // Solo cargar históricos si nunca se hizo
     if(!appData.config.historicos_cargados){
       mostrarCargando('Primera vez — cargando datos históricos…');
       await cargarHistoricosYFinalizar();
-      return; // cargarHistoricosYFinalizar llama a renderAll
+      return;
     }
 
   } catch(e) {
     console.error('Error cargando datos:', e);
-    toast('⚠️ Error de conexión');
+    toast('⚠️ Error de conexión — revisá tu internet');
   }
 
   document.getElementById('cfgCapital').value        = appData.config.capital;
