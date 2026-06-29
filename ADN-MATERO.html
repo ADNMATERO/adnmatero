@@ -872,6 +872,7 @@ async function cargarDatos() {
     ]);
 
     console.log(`📦 Supabase devolvió: ${ventas.length} ventas, ${compras.length} compras, ${gastos.length} gastos`);
+    if(ventas.length > 0) console.log(`📅 Primera venta fecha raw:`, JSON.stringify(ventas[0].fecha), '| última:', JSON.stringify(ventas[ventas.length-1].fecha));
 
     // Siempre mapear, sin importar si viene vacío o no
     appData.ventas = ventas.map(v=>({
@@ -1394,6 +1395,7 @@ function renderDashboard(){
 
   const ventasHoy    = appData.ventas.filter(v=>(v.fecha||'').slice(0,10)===hoy);
   const ventasSemana = appData.ventas.filter(v=>(v.fecha||'').slice(0,10)>=lunesStr && (v.fecha||'').slice(0,10)<=hoy);
+  console.log(`📅 Hoy: ${hoy} | Ventas hoy: ${ventasHoy.length} | Últimas fechas:`, appData.ventas.slice(-3).map(v=>v.fecha));
   const th   = ventasHoy.reduce((s,v)=>s+(parseFloat(v.total)||0),0);
   const tsem = ventasSemana.reduce((s,v)=>s+(parseFloat(v.total)||0),0);
 
