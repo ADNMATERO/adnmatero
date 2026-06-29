@@ -116,6 +116,10 @@ body{background:#f0ece1;font-family:'Segoe UI',system-ui,sans-serif;color:var(--
 /* FOTO UPLOAD en modal admin */
 .foto-upload-area{border:2px dashed rgba(38,70,83,.25);border-radius:10px;padding:20px;text-align:center;cursor:pointer;margin-bottom:10px;color:var(--gris2);font-size:13px;}
 .foto-upload-area:hover{border-color:var(--verde);background:rgba(45,106,79,.04);}
+
+/* SKELETON */
+.skeleton{background:linear-gradient(90deg,#e8e4da 25%,#f0ece3 50%,#e8e4da 75%);background-size:200% 100%;}
+@keyframes pulse{0%{background-position:200% 0}100%{background-position:-200% 0}}
 </style>
 </head>
 <body>
@@ -194,10 +198,49 @@ body{background:#f0ece1;font-family:'Segoe UI',system-ui,sans-serif;color:var(--
     <div class="form-pedido">
       <label>Tu nombre *</label>
       <input type="text" id="clienteNombre" placeholder="¿Cómo te llamás?">
-      <label>Teléfono (opcional)</label>
-      <input type="text" id="clienteTel" placeholder="Tu número">
-      <label>Notas del pedido</label>
-      <textarea id="clienteNotas" placeholder="Dirección, aclaraciones, etc."></textarea>
+      <label>Teléfono *</label>
+      <input type="tel" id="clienteTel" placeholder="Tu número de contacto">
+
+      <label>¿Cómo lo recibís? *</label>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button id="btnRetiro" onclick="setEntrega('retiro')" style="flex:1;padding:10px;border-radius:10px;border:2px solid rgba(38,70,83,.2);background:white;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s">
+          📍 Retiro en local
+        </button>
+        <button id="btnEnvio" onclick="setEntrega('envio')" style="flex:1;padding:10px;border-radius:10px;border:2px solid rgba(38,70,83,.2);background:white;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s">
+          🚚 Envío a domicilio
+        </button>
+      </div>
+
+      <!-- RETIRO -->
+      <div id="seccionRetiro" style="display:none">
+        <label>Elegí el punto de retiro *</label>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+          <label style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid rgba(38,70,83,.18);border-radius:8px;cursor:pointer;background:white">
+            <input type="radio" name="puntoRetiro" value="Hipólito Yrigoyen 396" style="width:auto;margin:0"> 
+            <div><strong>Punto 1</strong> — Hipólito Yrigoyen 396</div>
+          </label>
+          <label style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid rgba(38,70,83,.18);border-radius:8px;cursor:pointer;background:white">
+            <input type="radio" name="puntoRetiro" value="Chacabuco 480" style="width:auto;margin:0">
+            <div><strong>Punto 2</strong> — Chacabuco 480</div>
+          </label>
+          <label style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid rgba(38,70,83,.18);border-radius:8px;cursor:pointer;background:white">
+            <input type="radio" name="puntoRetiro" value="Ituzaingó 586" style="width:auto;margin:0">
+            <div><strong>Punto 3</strong> — Ituzaingó 586</div>
+          </label>
+        </div>
+      </div>
+
+      <!-- ENVIO -->
+      <div id="seccionEnvio" style="display:none">
+        <label>Tu dirección (solo Nueva Córdoba) *</label>
+        <input type="text" id="clienteDireccion" placeholder="Ej: Av. Hipólito Yrigoyen 1200, piso 3 dpto B">
+        <div style="background:#fff3cd;border-radius:8px;padding:8px 10px;font-size:11px;color:#856404;margin-bottom:10px">
+          🚚 Los envíos son solo dentro de <strong>Nueva Córdoba</strong>. Te contactamos para coordinar.
+        </div>
+      </div>
+
+      <label>Notas adicionales (opcional)</label>
+      <textarea id="clienteNotas" placeholder="Aclaraciones, horario preferido, etc."></textarea>
     </div>
     <div class="carrito-footer">
       <div class="carrito-total">
@@ -215,7 +258,7 @@ body{background:#f0ece1;font-family:'Segoe UI',system-ui,sans-serif;color:var(--
 
 <script>
 const SUPA_URL = 'https://qouleqetwdwyczrtibev.supabase.co';
-const SUPA_KEY = 'sb_publishable_TA6ZmRh_xyv5ImRkCoSXzg_CGj5ThR5';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvdWxlcWV0d2R3eWN6cnRpYmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MTQxMDEsImV4cCI6MjA5MDk5MDEwMX0.wVkxQQz4TlO-QoOS9OLQDtW3BQ6bwIcy7TrQd_RGPf8';
 const WA_NUMBER = '5493534099163';
 
 async function sbGet(table, query=''){
@@ -238,18 +281,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function cargarCatalogo(){
-  document.getElementById('productosGrid').innerHTML = '<div style="grid-column:span 2;text-align:center;padding:40px;color:rgba(38,70,83,.4)">Cargando productos...</div>';
+  // Mostrar skeletons mientras carga
+  document.getElementById('productosGrid').innerHTML = Array(8).fill(0).map(()=>`
+    <div class="prod-card">
+      <div class="prod-img sin-foto skeleton" style="animation:pulse 1.2s ease-in-out infinite"></div>
+      <div class="prod-info">
+        <div class="skeleton" style="height:10px;border-radius:4px;margin-bottom:6px;width:40%"></div>
+        <div class="skeleton" style="height:13px;border-radius:4px;margin-bottom:4px;width:90%"></div>
+        <div class="skeleton" style="height:13px;border-radius:4px;margin-bottom:8px;width:60%"></div>
+        <div class="skeleton" style="height:30px;border-radius:8px;width:100%"></div>
+      </div>
+    </div>`).join('');
+
   const [prods, fotosList] = await Promise.all([
     sbGet('catalogo','activo=eq.true&order=categoria.asc,orden.asc,nombre.asc'),
     sbGet('catalogo_fotos','order=producto_id.asc,orden.asc')
   ]);
   catalogo = prods;
-  // Agrupar fotos por producto
   fotos = {};
   fotosList.forEach(f=>{
     if(!fotos[f.producto_id]) fotos[f.producto_id] = [];
     fotos[f.producto_id].push(f.url);
   });
+
+  // Precargar primeras 6 fotos en background
+  const primerasFotos = fotosList.slice(0,6).map(f=>f.url);
+  primerasFotos.forEach(url=>{
+    const img = new Image();
+    img.src = url;
+  });
+
   renderProductos();
 }
 
@@ -284,7 +345,9 @@ function renderProductos(){
     const foto = fotos[p.id]?.[0];
     const enCarrito = carrito.find(c=>c.id===p.id);
     return `<div class="prod-card" onclick="abrirProducto('${p.id}')">
-      <div class="prod-img ${foto?'':'sin-foto'}">${foto?`<img src="${foto}" alt="${p.nombre}" loading="lazy">`:'🌿'}</div>
+      <div class="prod-img ${foto?'':'sin-foto'}">${foto
+        ? `<img src="${foto}" alt="${p.nombre}" loading="lazy" decoding="async" onload="this.style.opacity=1" style="opacity:0;transition:opacity .3s">`
+        : '🌿'}</div>
       <div class="prod-info">
         ${p.codigo?`<div class="prod-cod">#${p.codigo}</div>`:''}
         <div class="prod-nombre">${p.nombre}</div>
@@ -396,58 +459,102 @@ function actualizarCarritoUI(){
 }
 
 // ── WHATSAPP ────────────────────────────────────────────────
+let tipoEntrega = '';
+
+function setEntrega(tipo){
+  tipoEntrega = tipo;
+  const btnRetiro = document.getElementById('btnRetiro');
+  const btnEnvio  = document.getElementById('btnEnvio');
+  const secRetiro = document.getElementById('seccionRetiro');
+  const secEnvio  = document.getElementById('seccionEnvio');
+  if(tipo === 'retiro'){
+    btnRetiro.style.cssText += ';border-color:var(--verde);background:#f0faf5;color:var(--verde)';
+    btnEnvio.style.cssText  += ';border-color:rgba(38,70,83,.2);background:white;color:inherit';
+    secRetiro.style.display = 'block';
+    secEnvio.style.display  = 'none';
+  } else {
+    btnEnvio.style.cssText  += ';border-color:var(--verde);background:#f0faf5;color:var(--verde)';
+    btnRetiro.style.cssText += ';border-color:rgba(38,70,83,.2);background:white;color:inherit';
+    secRetiro.style.display = 'none';
+    secEnvio.style.display  = 'block';
+  }
+}
+
 async function enviarWhatsApp(){
   const nombre = document.getElementById('clienteNombre').value.trim();
   const tel    = document.getElementById('clienteTel').value.trim();
   const notas  = document.getElementById('clienteNotas').value.trim();
 
   if(!nombre){ toast('⚠️ Escribí tu nombre'); return; }
+  if(!tel)   { toast('⚠️ Ingresá tu teléfono'); return; }
+  if(!tipoEntrega){ toast('⚠️ Elegí si retirás o querés envío'); return; }
   if(!carrito.length){ toast('⚠️ El carrito está vacío'); return; }
 
+  // Validar entrega
+  let entregaInfo = '';
+  if(tipoEntrega === 'retiro'){
+    const punto = document.querySelector('input[name="puntoRetiro"]:checked');
+    if(!punto){ toast('⚠️ Elegí un punto de retiro'); return; }
+    entregaInfo = `📍 Retiro en: *${punto.value}*`;
+  } else {
+    const dir = document.getElementById('clienteDireccion').value.trim();
+    if(!dir){ toast('⚠️ Ingresá tu dirección'); return; }
+    entregaInfo = `🚚 Envío a: *${dir}*`;
+  }
+
   const total = carrito.reduce((s,c)=>s+c.precio*c.qty,0);
-  const linea = '━━━━━━━━━━━━━━━━━━━━━';
 
   // Guardar pedido en Supabase
   const pedidoId = Date.now().toString();
   const items = carrito.map(c=>({
-    nombre: c.nombre, codigo: c.codigo||null,
-    qty: c.qty, precio: c.precio, subtotal: c.precio*c.qty
+    nombre:c.nombre, codigo:c.codigo||null,
+    qty:c.qty, precio:c.precio, subtotal:c.precio*c.qty
   }));
-  await fetch(`${SUPA_URL}/rest/v1/pedidos`, {
+  const entregaTexto = tipoEntrega === 'retiro'
+    ? `Retiro - ${document.querySelector('input[name="puntoRetiro"]:checked')?.value}`
+    : `Envío - ${document.getElementById('clienteDireccion').value.trim()}`;
+
+  await fetch(`${SUPA_URL}/rest/v1/pedidos`,{
     method:'POST',
     headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
-    body: JSON.stringify({id:pedidoId, cliente_nombre:nombre, cliente_tel:tel||null, notas:notas||null, items, total, estado:'pendiente'})
+    body:JSON.stringify({id:pedidoId,cliente_nombre:nombre,cliente_tel:tel,notas:`${entregaTexto}${notas?' — '+notas:''}`,items,total,estado:'pendiente'})
   });
 
-  let msg = '';
-  msg += `🌿 *ADN MATERO — NUEVO PEDIDO* 🌿\n`;
-  msg += `${linea}\n\n`;
-  msg += `👤 *Cliente:* ${nombre}\n`;
-  if(tel) msg += `📱 *Teléfono:* ${tel}\n`;
-  msg += `*Ref:* #${pedidoId.slice(-6)}\n`;
-  msg += `\n🛒 *Productos:*\n`;
-  carrito.forEach((c,i)=>{
-    msg += `\n${i+1}. *${c.nombre}*\n`;
-    msg += `   ${c.qty} u x ${formatPeso(c.precio)} = *${formatPeso(c.precio*c.qty)}*\n`;
-  });
-  msg += `\n${linea}\n`;
-  msg += `💰 *TOTAL: ${formatPeso(total)}*\n`;
+  // Armar mensaje WhatsApp amigable
+  const linea = '━━━━━━━━━━━━━━━━━━━━━';
+  let msg = `¡Hola! 👋 Soy *${nombre}* y quiero hacer un pedido:\n\n`;
   msg += `${linea}\n`;
-  if(notas) msg += `\n📝 *Notas:* ${notas}\n`;
-  msg += `\n_Tienda online ADN Matero — Córdoba_ 🤝`;
+  msg += `🛒 *MI PEDIDO:*\n\n`;
+  carrito.forEach((c,i)=>{
+    msg += `${i+1}. ${c.nombre}\n`;
+    msg += `   ${c.qty} unidad${c.qty>1?'es':''} × ${formatPeso(c.precio)} = *${formatPeso(c.precio*c.qty)}*\n\n`;
+  });
+  msg += `${linea}\n`;
+  msg += `💰 *Total: ${formatPeso(total)}*\n`;
+  msg += `${linea}\n\n`;
+  msg += `${entregaInfo}\n`;
+  msg += `📱 *Mi teléfono:* ${tel}\n`;
+  if(notas) msg += `📝 *Notas:* ${notas}\n`;
+  msg += `\n_Ref: #${pedidoId.slice(-6)}_\n`;
+  msg += `\n¡Muchas gracias! 🌿`;
 
   const url = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
-  window.open(url, '_blank');
+  window.open(url,'_blank');
 
-  // Limpiar carrito
+  // Limpiar
   carrito = [];
+  tipoEntrega = '';
   actualizarCarritoUI();
   document.getElementById('carritoDrawer').style.display='none';
   document.getElementById('clienteNombre').value='';
   document.getElementById('clienteTel').value='';
   document.getElementById('clienteNotas').value='';
+  document.getElementById('clienteDireccion').value='';
+  document.querySelectorAll('input[name="puntoRetiro"]').forEach(r=>r.checked=false);
+  document.getElementById('seccionRetiro').style.display='none';
+  document.getElementById('seccionEnvio').style.display='none';
   renderProductos();
-  toast('✅ Pedido enviado!');
+  toast('✅ ¡Pedido enviado!');
 }
 
 // ── HELPERS ─────────────────────────────────────────────────

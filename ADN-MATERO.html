@@ -793,7 +793,7 @@ const COMPRAS_HISTORICAS = [
 // SUPABASE CONFIG
 // ══════════════════════════════════════════════════════════════
 const SUPA_URL = 'https://qouleqetwdwyczrtibev.supabase.co';
-const SUPA_KEY = 'sb_publishable_TA6ZmRh_xyv5ImRkCoSXzg_CGj5ThR5';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvdWxlcWV0d2R3eWN6cnRpYmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MTQxMDEsImV4cCI6MjA5MDk5MDEwMX0.wVkxQQz4TlO-QoOS9OLQDtW3BQ6bwIcy7TrQd_RGPf8';
 
 async function sbGet(table, extra=''){
   const r = await fetch(`${SUPA_URL}/rest/v1/${table}?${extra}`, {

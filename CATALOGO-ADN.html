@@ -133,6 +133,14 @@ textarea{resize:vertical;min-height:60px;}
   </div>
 
   <!-- LISTA -->
+  <div class="sec-title">🔄 Importar desde ADN-MATERO</div>
+  <div class="card" style="border-left:3px solid var(--verde3)">
+    <div style="font-size:13px;color:var(--gris2);margin-bottom:10px">
+      Traé automáticamente los productos nuevos que cargaste en la app de administración y que todavía no están en el catálogo de la tienda.
+    </div>
+    <div id="importResultado" style="display:none;margin-bottom:10px;font-size:12px;padding:8px 10px;border-radius:8px;background:#d1fadf;color:#155724"></div>
+    <button class="btn btn-primary" onclick="importarDesdeADNMatero()">⬇️ IMPORTAR PRODUCTOS NUEVOS</button>
+  </div>
   <div class="sec-title">📦 Productos en Catálogo</div>
   <div class="cat-pills">
     <button class="cat-pill active" onclick="filtrarCat('',this)">Todos</button>
@@ -183,7 +191,7 @@ textarea{resize:vertical;min-height:60px;}
 
 <script>
 const SUPA_URL = 'https://qouleqetwdwyczrtibev.supabase.co';
-const SUPA_KEY = 'sb_publishable_TA6ZmRh_xyv5ImRkCoSXzg_CGj5ThR5';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvdWxlcWV0d2R3eWN6cnRpYmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MTQxMDEsImV4cCI6MjA5MDk5MDEwMX0.wVkxQQz4TlO-QoOS9OLQDtW3BQ6bwIcy7TrQd_RGPf8';
 
 async function sbGet(t,q=''){const r=await fetch(`${SUPA_URL}/rest/v1/${t}?${q}`,{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});return r.ok?r.json():[];}
 async function sbUpsert(t,d){await fetch(`${SUPA_URL}/rest/v1/${t}`,{method:'POST',headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},body:JSON.stringify(d)});}
@@ -247,6 +255,55 @@ document.addEventListener('DOMContentLoaded', async () => {
   await importarProductosBase();
   await cargarCatalogo();
 });
+
+async function importarDesdeADNMatero(){
+  const btn = event.currentTarget;
+  btn.textContent = '⏳ Importando...';
+  btn.disabled = true;
+
+  // Traer productos_custom y los ya existentes en catalogo
+  const [custom, existentes] = await Promise.all([
+    sbGet('productos_custom','order=created_at.asc'),
+    sbGet('catalogo','select=id,nombre,codigo')
+  ]);
+
+  const idsExistentes  = new Set(existentes.map(p=>p.id));
+  const nombresExist   = new Set(existentes.map(p=>(p.nombre||'').toLowerCase().trim()));
+
+  const nuevos = custom.filter(p=>
+    !idsExistentes.has(p.id) &&
+    !nombresExist.has((p.nombre||'').toLowerCase().trim())
+  );
+
+  if(nuevos.length === 0){
+    document.getElementById('importResultado').style.cssText='display:block;background:#fff3cd;color:#856404;padding:8px 10px;border-radius:8px;margin-bottom:10px;font-size:12px';
+    document.getElementById('importResultado').textContent = '✓ Todo al día — no hay productos nuevos para importar';
+    btn.textContent = '⬇️ IMPORTAR PRODUCTOS NUEVOS';
+    btn.disabled = false;
+    return;
+  }
+
+  // Insertar en catalogo
+  for(const p of nuevos){
+    await sbUpsert('catalogo',{
+      id: p.id,
+      nombre: p.nombre,
+      categoria: p.categoria,
+      precio: p.precio_venta,
+      codigo: p.codigo || null,
+      orden: p.codigo || 9999,
+      activo: true
+    });
+  }
+
+  const res = document.getElementById('importResultado');
+  res.style.cssText='display:block;background:#d1fadf;color:#155724;padding:8px 10px;border-radius:8px;margin-bottom:10px;font-size:12px';
+  res.innerHTML = `✅ Se importaron <strong>${nuevos.length} producto(s)</strong>: ${nuevos.map(p=>p.nombre).join(', ')}`;
+  btn.textContent = '⬇️ IMPORTAR PRODUCTOS NUEVOS';
+  btn.disabled = false;
+  toast(`✅ ${nuevos.length} producto(s) importados al catálogo`);
+  await cargarCatalogo();
+}
 
 async function importarProductosBase(){
   // Verificar cuáles ya existen por código
@@ -325,16 +382,38 @@ function renderFotosPreview(containerId,arr,onDel){
     </div>`).join('');
 }
 
-async function subirFoto(file,productoId){
-  const ext=file.name.split('.').pop().toLowerCase();
-  const path=`${productoId}/${Date.now()}.${ext}`;
-  const r=await fetch(`${SUPA_URL}/storage/v1/object/catalogo-fotos/${path}`,{
+async function subirFoto(file, productoId){
+  // Comprimir imagen antes de subir (máx 800px, calidad 80%)
+  const comprimida = await comprimirImagen(file, 800, 0.8);
+  const ext = 'jpg'; // siempre JPG después de comprimir
+  const path = `${productoId}/${Date.now()}.${ext}`;
+  const r = await fetch(`${SUPA_URL}/storage/v1/object/catalogo-fotos/${path}`,{
     method:'POST',
-    headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':file.type},
-    body:file
+    headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'image/jpeg'},
+    body: comprimida
   });
   if(!r.ok) return null;
   return `${SUPA_URL}/storage/v1/object/public/catalogo-fotos/${path}`;
+}
+
+function comprimirImagen(file, maxPx, calidad){
+  return new Promise(resolve=>{
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = ()=>{
+      let w = img.width, h = img.height;
+      if(w > maxPx || h > maxPx){
+        if(w > h){ h = Math.round(h * maxPx / w); w = maxPx; }
+        else      { w = Math.round(w * maxPx / h); h = maxPx; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob=>{ URL.revokeObjectURL(url); resolve(blob); }, 'image/jpeg', calidad);
+    };
+    img.src = url;
+  });
 }
 
 // ── GUARDAR PRODUCTO ──────────────────────────────────────
