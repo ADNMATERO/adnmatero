@@ -245,6 +245,26 @@ textarea{resize:vertical;min-height:50px;}
   <div class="kpi-grid" id="kpiGrid"></div>
   <div class="kpi-grid" id="kpiGridSemana" style="margin-top:-4px"></div>
   <div id="alertasContainer"></div>
+
+  <!-- REPORTE PARA FACTURAR -->
+  <div style="background:white;border-radius:12px;padding:14px;margin-bottom:14px;box-shadow:0 2px 8px var(--sombra);border-left:3px solid var(--verde)">
+    <div style="font-family:'Bebas Neue';font-size:17px;letter-spacing:1px">Reporte para Facturar</div>
+    <div style="font-size:11px;color:var(--gris2);opacity:.7;margin-bottom:10px" id="reporteRango">-</div>
+    <div class="filter-pills" id="repPills" style="margin-bottom:10px">
+      <button class="pill active" onclick="setRangoReporte('semana',this)">Esta semana</button>
+      <button class="pill" onclick="setRangoReporte('semanaPasada',this)">Semana pasada</button>
+      <button class="pill" onclick="setRangoReporte('mes',this)">Este mes</button>
+    </div>
+    <div class="form-row" style="margin-bottom:8px">
+      <div><label>Desde</label><input type="date" id="repDesde" onchange="renderResumenReporte()"></div>
+      <div><label>Hasta</label><input type="date" id="repHasta" onchange="renderResumenReporte()"></div>
+    </div>
+    <div id="reporteResumen" style="background:var(--crema);border-radius:8px;padding:10px;font-size:12px;margin-bottom:10px"></div>
+    <div style="display:flex;gap:6px">
+      <button class="btn btn-primary" style="margin-top:0" onclick="descargarReporteCSV()">CSV / Excel</button>
+      <button class="btn" style="margin-top:0;background:var(--gris);color:var(--crema)" onclick="descargarReporteHTML()">Imprimir / PDF</button>
+    </div>
+  </div>
   <div class="sec-title">Últimas Ventas <span class="line"></span></div>
   <div class="scroll-area">
     <table class="tabla"><thead><tr><th>Fecha</th><th>Producto</th><th>Cant</th><th>Total</th><th>Estado</th><th></th></tr></thead>
@@ -264,9 +284,18 @@ textarea{resize:vertical;min-height:50px;}
   <div class="form-row one"><div><label>Producto</label>
     <select id="ventaProducto" onchange="onProductoChange('venta')"><option value="">— Elegí un producto —</option></select>
   </div></div>
-  <div class="form-row three">
+  <div class="form-row">
     <div><label>Cantidad</label><input type="number" id="ventaCantidad" value="1" min="1" oninput="calcularTotalVenta()"></div>
     <div><label>Precio Unit $</label><input type="number" id="ventaPrecio" placeholder="Auto" oninput="calcularTotalVenta()"></div>
+  </div>
+  <button class="btn" style="background:var(--gris);color:var(--crema)" onclick="agregarItemVenta()">➕ AGREGAR OTRO PRODUCTO</button>
+
+  <div id="itemsVentaWrap" style="display:none;margin-top:12px">
+    <div class="sec-title" style="font-size:14px">Productos en esta venta <span class="line"></span></div>
+    <div id="itemsVentaLista"></div>
+  </div>
+
+  <div class="form-row" style="margin-top:10px">
     <div><label>Estado</label>
       <select id="ventaCobrada" onchange="toggleMontoCobrado()">
         <option value="si">✅ Cobrada</option>
@@ -274,9 +303,8 @@ textarea{resize:vertical;min-height:50px;}
         <option value="no">⏳ Pendiente</option>
       </select>
     </div>
-  </div>
-  <div class="form-row one" id="montoCobradoRow" style="display:none">
-    <div><label>Monto Cobrado $</label>
+    <div id="montoCobradoRow" style="display:none">
+      <label>Monto Cobrado $</label>
       <input type="number" id="ventaMontoCobrado" placeholder="¿Cuánto pagaron?" oninput="calcularTotalVenta()">
     </div>
   </div>
@@ -449,7 +477,6 @@ textarea{resize:vertical;min-height:50px;}
   </div>
 </div>
 
-<!-- PRODUCTOS -->
 <!-- PEDIDOS -->
 <div id="panel-pedidos" class="panel">
   <div class="kpi-grid" style="margin-bottom:12px">
@@ -466,6 +493,7 @@ textarea{resize:vertical;min-height:50px;}
 </div>
 
 <!-- PRODUCTOS -->
+<div id="panel-productos" class="panel">
   <div class="sec-title">Nuevo Producto <span class="line"></span></div>
   <div class="form-row">
     <div><label>Nombre del Producto</label><input type="text" id="prodNombre" placeholder="Ej: Canarias Naranja 1Kg"></div>
@@ -1023,6 +1051,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function renderAll(){
+  setRangoReporte('semana');
   poblarSelectores();
   poblarSelectoresConCustom();
   renderDashboard();
@@ -1044,7 +1073,7 @@ function showTab(name, el) {
   if(name==='stock')     renderStock();
   if(name==='caja')      {renderCaja();renderMargenes();}
   if(name==='dashboard') renderDashboard();
-  if(name==='venta')     {reconstruirSelectores();renderVentasPendientes();}
+  if(name==='venta')     {reconstruirSelectores();renderVentasPendientes();renderItemsVenta();calcularTotalVenta();}
   if(name==='compra')    {reconstruirSelectores();renderUltimasCompras();}
   if(name==='gastos')    renderGastos();
   if(name==='pedidos')   renderPedidos();
@@ -1135,20 +1164,73 @@ function toggleMontoCobrado(){
   if(estado !== 'parcial') document.getElementById('ventaMontoCobrado').value = '';
   calcularTotalVenta();
 }
+// ---- MULTI-ITEM VENTA ----
+let itemsVenta = [];
+
+function agregarItemVenta(){
+  const producto = document.getElementById('ventaProducto').value;
+  const cantidad = parseFloat(document.getElementById('ventaCantidad').value)||0;
+  const precio   = parseFloat(document.getElementById('ventaPrecio').value)||0;
+  if(!producto||!cantidad||!precio){ toast('Elegi producto, cantidad y precio'); return; }
+  const ex = itemsVenta.find(i=>i.producto===producto && i.precio===precio);
+  if(ex) ex.cantidad += cantidad;
+  else itemsVenta.push({producto, cantidad, precio});
+  document.getElementById('ventaProducto').value='';
+  document.getElementById('ventaCantidad').value='1';
+  document.getElementById('ventaPrecio').value='';
+  renderItemsVenta();
+  calcularTotalVenta();
+  toast(producto + ' agregado');
+}
+
+function quitarItemVenta(idx){
+  itemsVenta.splice(idx,1);
+  renderItemsVenta();
+  calcularTotalVenta();
+}
+
+function renderItemsVenta(){
+  const wrap = document.getElementById('itemsVentaWrap');
+  const lista = document.getElementById('itemsVentaLista');
+  if(!wrap||!lista) return;
+  if(!itemsVenta.length){ wrap.style.display='none'; lista.innerHTML=''; return; }
+  wrap.style.display='block';
+  const totalAcum = itemsVenta.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  lista.innerHTML = itemsVenta.map((it,i)=>
+    '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:white;border-radius:8px;margin-bottom:5px;box-shadow:0 1px 3px var(--sombra)">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+it.producto+'</div>'+
+        '<div style="font-size:10.5px;color:var(--gris2);opacity:.75">'+it.cantidad+' x '+formatPeso(it.precio)+'</div>'+
+      '</div>'+
+      '<div style="font-weight:700;color:var(--verde);font-size:13px;white-space:nowrap">'+formatPeso(it.cantidad*it.precio)+'</div>'+
+      '<button class="btn-icon" onclick="quitarItemVenta('+i+')" title="Quitar">&#10005;</button>'+
+    '</div>'
+  ).join('') +
+  '<div style="display:flex;justify-content:space-between;padding:6px 10px;font-size:12px;font-weight:700;color:var(--gris2)">'+
+    '<span>'+itemsVenta.length+' producto(s) agregados</span><span>'+formatPeso(totalAcum)+'</span></div>';
+}
+
+function totalVentaActual(){
+  const acum = itemsVenta.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  const c = parseFloat(document.getElementById('ventaCantidad').value)||0;
+  const p = parseFloat(document.getElementById('ventaPrecio').value)||0;
+  const sel = document.getElementById('ventaProducto').value;
+  return acum + ((sel && c && p) ? c*p : 0);
+}
+
 function calcularTotalVenta(){
-  const c=parseFloat(document.getElementById('ventaCantidad').value)||0;
-  const p=parseFloat(document.getElementById('ventaPrecio').value)||0;
-  const total=c*p;
-  const estado=document.getElementById('ventaCobrada').value;
-  const mc=parseFloat(document.getElementById('ventaMontoCobrado')?.value)||0;
+  const total = totalVentaActual();
+  const estado = document.getElementById('ventaCobrada').value;
+  const mc = parseFloat(document.getElementById('ventaMontoCobrado')?.value)||0;
   const display = document.getElementById('ventaPrecioDisplay');
+  const n = itemsVenta.length + (document.getElementById('ventaProducto').value ? 1 : 0);
+  const label = n > 1 ? 'Total ('+n+' productos)' : 'Total de la venta';
   if(estado==='parcial' && mc>0){
-    document.getElementById('ventaTotalValor').textContent = formatPeso(total);
     display.style.background = '#b36a00';
-    display.innerHTML = `<span>Total: ${formatPeso(total)}</span><span class="precio-total">Cobrado: ${formatPeso(mc)} · Resta: ${formatPeso(total-mc)}</span>`;
+    display.innerHTML = '<span>'+label+': '+formatPeso(total)+'</span><span class="precio-total">Resta: '+formatPeso(total-mc)+'</span>';
   } else {
     display.style.background = 'var(--verde)';
-    display.innerHTML = `<span>Total de la venta</span><span class="precio-total" id="ventaTotalValor">${formatPeso(total)}</span>`;
+    display.innerHTML = '<span>'+label+'</span><span class="precio-total" id="ventaTotalValor">'+formatPeso(total)+'</span>';
   }
 }
 function calcularTotalCompra(){const c=parseFloat(document.getElementById('compraCantidad').value)||0,p=parseFloat(document.getElementById('compraCosto').value)||0;document.getElementById('compraTotalValor').textContent=formatPeso(c*p);}
@@ -1157,45 +1239,72 @@ function calcularTotalCompra(){const c=parseFloat(document.getElementById('compr
 // VENTAS
 // ══════════════════════════════════════════════════════════════
 async function guardarVenta(){
-  const fecha=document.getElementById('ventaFecha').value,
-        cliente=document.getElementById('ventaCliente').value.trim(),
-        producto=document.getElementById('ventaProducto').value,
-        cantidad=parseFloat(document.getElementById('ventaCantidad').value),
-        precio=parseFloat(document.getElementById('ventaPrecio').value),
-        estado=document.getElementById('ventaCobrada').value,
-        notas=document.getElementById('ventaNotas').value.trim();
-  if(!producto||!cantidad||!precio){toast('⚠️ Completá producto, cantidad y precio');return;}
+  const fecha   = document.getElementById('ventaFecha').value;
+  const cliente = document.getElementById('ventaCliente').value.trim();
+  const estado  = document.getElementById('ventaCobrada').value;
+  const notas   = document.getElementById('ventaNotas').value.trim();
 
-  const total = cantidad * precio;
+  // Juntar items acumulados + el que este cargado en el form
+  const items = [...itemsVenta];
+  const prodForm = document.getElementById('ventaProducto').value;
+  const cantForm = parseFloat(document.getElementById('ventaCantidad').value)||0;
+  const precForm = parseFloat(document.getElementById('ventaPrecio').value)||0;
+  if(prodForm && cantForm && precForm){
+    const ex = items.find(i=>i.producto===prodForm && i.precio===precForm);
+    if(ex) ex.cantidad += cantForm;
+    else items.push({producto:prodForm, cantidad:cantForm, precio:precForm});
+  }
+
+  if(!items.length){ toast('Agrega al menos un producto'); return; }
+
+  const totalVenta = items.reduce((s,i)=>s+i.cantidad*i.precio,0);
   const cobrada = estado === 'si';
-  const montoCobrado = estado === 'parcial' ? (parseFloat(document.getElementById('ventaMontoCobrado').value)||0) : null;
+  const montoCobradoTotal = estado === 'parcial' ? (parseFloat(document.getElementById('ventaMontoCobrado').value)||0) : null;
 
-  if(estado === 'parcial' && (!montoCobrado || montoCobrado <= 0)){
-    toast('⚠️ Ingresá el monto cobrado'); return;
+  if(estado === 'parcial' && (!montoCobradoTotal || montoCobradoTotal <= 0)){
+    toast('Ingresa el monto cobrado'); return;
   }
-  if(estado === 'parcial' && montoCobrado >= total){
-    toast('⚠️ Si cobró todo, elegí "Cobrada"'); return;
+  if(estado === 'parcial' && montoCobradoTotal >= totalVenta){
+    toast('Si cobro todo, elegi "Cobrada"'); return;
   }
 
-  const id=Date.now().toString();
-  appData.ventas.push({id,fecha,cliente,producto,cantidad,precioUnit:precio,total,cobrada,montoCobrado,notas,historica:false});
-  sbUpsert('ventas',{id,fecha,cliente,producto,cantidad,precio_unit:precio,total,cobrada,monto_cobrado:montoCobrado,notas,historica:false});
-
-  // Actualizar precio de venta del producto automáticamente
-  const prodNorm = normalizar(producto);
+  // Referencia comun para agrupar los items de la misma venta
+  const refVenta = items.length > 1 ? 'V' + Date.now().toString().slice(-6) : null;
   let precioActualizado = false;
-  const prodBase = TODOS_LOS_PRODUCTOS.find(p=>normalizar(p.nombre)===prodNorm);
-  if(prodBase && prodBase.precioVenta !== precio){
-    prodBase.precioVenta = precio;
-    precioActualizado = true;
-  }
-  const prodCustom = (appData.productosCustom||[]).find(p=>normalizar(p.nombre)===prodNorm);
-  if(prodCustom && prodCustom.precioVenta !== precio){
-    prodCustom.precioVenta = precio;
-    sbUpdate('productos_custom', prodCustom.id, {precio_venta: precio});
-    precioActualizado = true;
+  let primerId = null;
+
+  for(let k=0; k<items.length; k++){
+    const it = items[k];
+    const id = (Date.now() + k).toString() + Math.floor(Math.random()*90+10);
+    if(!primerId) primerId = id;
+    const totalItem = it.cantidad * it.precio;
+    // Repartir el monto cobrado proporcionalmente entre los items
+    const mcItem = montoCobradoTotal === null
+      ? null
+      : Math.round(montoCobradoTotal * (totalItem / totalVenta));
+    const notaItem = refVenta ? (notas ? notas + ' [' + refVenta + ']' : '[' + refVenta + ']') : notas;
+
+    appData.ventas.push({id, fecha, cliente, producto:it.producto, cantidad:it.cantidad,
+      precioUnit:it.precio, total:totalItem, cobrada, montoCobrado:mcItem, notas:notaItem, historica:false});
+
+    await sbUpsert('ventas',{id, fecha, cliente, producto:it.producto, cantidad:it.cantidad,
+      precio_unit:it.precio, total:totalItem, cobrada, monto_cobrado:mcItem, notas:notaItem, historica:false});
+
+    // Actualizar precio de lista del producto
+    const pn = normalizar(it.producto);
+    const pb = TODOS_LOS_PRODUCTOS.find(p=>normalizar(p.nombre)===pn);
+    if(pb && pb.precioVenta !== it.precio){ pb.precioVenta = it.precio; precioActualizado = true; }
+    const pc = (appData.productosCustom||[]).find(p=>normalizar(p.nombre)===pn);
+    if(pc && pc.precioVenta !== it.precio){
+      pc.precioVenta = it.precio;
+      sbUpdate('productos_custom', pc.id, {precio_venta: it.precio});
+      precioActualizado = true;
+    }
   }
 
+  // Reset del formulario
+  itemsVenta = [];
+  renderItemsVenta();
   document.getElementById('ventaCliente').value='';
   document.getElementById('ventaProducto').value='';
   document.getElementById('ventaCantidad').value='1';
@@ -1204,11 +1313,15 @@ async function guardarVenta(){
   document.getElementById('ventaCobrada').value='si';
   document.getElementById('montoCobradoRow').style.display='none';
   document.getElementById('ventaMontoCobrado').value='';
-  // Reset display
   document.getElementById('ventaPrecioDisplay').style.background='var(--verde)';
   document.getElementById('ventaPrecioDisplay').innerHTML='<span>Total de la venta</span><span class="precio-total" id="ventaTotalValor">$0</span>';
+
   renderVentasPendientes(); renderDashboard();
-  toastConEditar(id, precioActualizado ? `✅ Venta registrada · Precio actualizado a ${formatPeso(precio)}` : '✅ Venta registrada!');
+
+  const msg = items.length > 1
+    ? 'Venta registrada: ' + items.length + ' productos por ' + formatPeso(totalVenta)
+    : (precioActualizado ? 'Venta registrada - Precio actualizado' : 'Venta registrada!');
+  toastConEditar(primerId, msg);
 }
 // ─── EDITAR VENTA ────────────────────────────────────────────
 function abrirEditarVenta(id){
@@ -1835,6 +1948,130 @@ async function resetDatos(){
   appData.ventas=appData.ventas.filter(v=>v.historica);
   appData.compras=appData.compras.filter(c=>c.historica);
   renderDashboard(); toast('🔄 Datos nuevos reseteados');
+}
+
+// ---- REPORTE PARA FACTURAR ----
+function fechaLocalStr(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function setRangoReporte(tipo, el){
+  if(el){
+    document.querySelectorAll('#repPills .pill').forEach(p=>p.classList.remove('active'));
+    el.classList.add('active');
+  }
+  const hoy = new Date();
+  let desde, hasta;
+  if(tipo==='semana'){
+    const dow = hoy.getDay()===0 ? 6 : hoy.getDay()-1;
+    desde = new Date(hoy); desde.setDate(hoy.getDate()-dow);
+    hasta = hoy;
+  } else if(tipo==='semanaPasada'){
+    const dow = hoy.getDay()===0 ? 6 : hoy.getDay()-1;
+    hasta = new Date(hoy); hasta.setDate(hoy.getDate()-dow-1);
+    desde = new Date(hasta); desde.setDate(hasta.getDate()-6);
+  } else {
+    desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    hasta = hoy;
+  }
+  const rd = document.getElementById('repDesde'), rh = document.getElementById('repHasta');
+  if(rd) rd.value = fechaLocalStr(desde);
+  if(rh) rh.value = fechaLocalStr(hasta);
+  renderResumenReporte();
+}
+
+function getVentasReporte(){
+  const rd = document.getElementById('repDesde'), rh = document.getElementById('repHasta');
+  if(!rd||!rh) return [];
+  const desde = rd.value, hasta = rh.value;
+  if(!desde||!hasta) return [];
+  return appData.ventas.filter(v=>{
+    const f = (v.fecha||'').slice(0,10);
+    return f && f !== 'Historica' && f >= desde && f <= hasta;
+  }).sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+}
+
+function renderResumenReporte(){
+  const cont = document.getElementById('reporteResumen');
+  if(!cont) return;
+  const vs = getVentasReporte();
+  const total = vs.reduce((s,v)=>s+(parseFloat(v.total)||0),0);
+  const cobrado = vs.filter(v=>v.cobrada).reduce((s,v)=>s+(parseFloat(v.total)||0),0)
+                + vs.filter(v=>!v.cobrada&&v.montoCobrado>0).reduce((s,v)=>s+(parseFloat(v.montoCobrado)||0),0);
+  const unidades = vs.reduce((s,v)=>s+(parseFloat(v.cantidad)||0),0);
+  const rd = document.getElementById('repDesde').value, rh = document.getElementById('repHasta').value;
+  const fmtCorto = f => f ? f.split('-').reverse().slice(0,2).join('/') : '-';
+  document.getElementById('reporteRango').textContent = fmtCorto(rd) + ' al ' + fmtCorto(rh);
+  cont.innerHTML = !vs.length
+    ? '<span style="opacity:.5">Sin ventas en este periodo</span>'
+    : '<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span>Operaciones</span><strong>'+vs.length+'</strong></div>'
+    + '<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span>Unidades</span><strong>'+unidades+'</strong></div>'
+    + '<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span>Cobrado</span><strong style="color:var(--verde)">'+formatPeso(cobrado)+'</strong></div>'
+    + '<div style="display:flex;justify-content:space-between;border-top:1px solid rgba(38,70,83,.15);padding-top:5px;margin-top:5px"><strong>TOTAL A FACTURAR</strong><strong style="color:var(--verde);font-size:15px">'+formatPeso(total)+'</strong></div>';
+}
+
+function descargarReporteCSV(){
+  const vs = getVentasReporte();
+  if(!vs.length){ toast('No hay ventas en ese periodo'); return; }
+  const desde = document.getElementById('repDesde').value, hasta = document.getElementById('repHasta').value;
+  const h = ['Fecha','Cliente','Producto','Cantidad','Precio Unit','Total','Estado','Cobrado','Notas'];
+  const rows = vs.map(v=>{
+    const estado = v.cobrada ? 'Cobrada' : (v.montoCobrado>0 ? 'Parcial' : 'Pendiente');
+    const cobrado = v.cobrada ? v.total : (v.montoCobrado||0);
+    return [v.fecha, v.cliente||'', v.producto, v.cantidad, v.precioUnit, v.total, estado, cobrado, v.notas||'']
+      .map(x=>'"'+String(x==null?'':x).replace(/"/g,'""')+'"').join(';');
+  });
+  const total = vs.reduce((s,v)=>s+(parseFloat(v.total)||0),0);
+  rows.push('');
+  rows.push('"";"";"";"";"TOTAL";"'+total+'";"";"";""');
+  const csv = [h.join(';'), ...rows].join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'ADN_reporte_'+desde+'_a_'+hasta+'.csv';
+  a.click(); URL.revokeObjectURL(url);
+  toast('Reporte descargado');
+}
+
+function descargarReporteHTML(){
+  const vs = getVentasReporte();
+  if(!vs.length){ toast('No hay ventas en ese periodo'); return; }
+  const desde = document.getElementById('repDesde').value, hasta = document.getElementById('repHasta').value;
+  const total = vs.reduce((s,v)=>s+(parseFloat(v.total)||0),0);
+  const cobrado = vs.filter(v=>v.cobrada).reduce((s,v)=>s+(parseFloat(v.total)||0),0)
+                + vs.filter(v=>!v.cobrada&&v.montoCobrado>0).reduce((s,v)=>s+(parseFloat(v.montoCobrado)||0),0);
+  const fmtF = f => (f||'').split('-').reverse().join('/');
+  let filas = '';
+  vs.forEach(v=>{
+    filas += '<tr><td>'+fmtF((v.fecha||'').slice(0,10))+'</td><td>'+(v.cliente||'-')+'</td><td>'+v.producto
+          +'</td><td class="num">'+v.cantidad+'</td><td class="num">'+formatPeso(v.precioUnit)
+          +'</td><td class="num">'+formatPeso(v.total)+'</td><td>'
+          +(v.cobrada?'Cobrada':(v.montoCobrado>0?'Parcial':'Pendiente'))+'</td></tr>';
+  });
+  const doc = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reporte ADN Matero</title>'
+    + '<style>body{font-family:Segoe UI,sans-serif;color:#264653;padding:28px;max-width:900px;margin:0 auto}'
+    + 'h1{font-size:21px;margin-bottom:2px}.sub{font-size:13px;color:#666;margin-bottom:18px}'
+    + 'table{width:100%;border-collapse:collapse;font-size:12px}'
+    + 'th{background:#264653;color:#fff;text-align:left;padding:7px;font-size:11px;text-transform:uppercase}'
+    + 'td{padding:6px 7px;border-bottom:1px solid #eee}tr:nth-child(even) td{background:#faf8f4}'
+    + '.num{text-align:right}.tot td{background:#2D6A4F;color:#fff;font-weight:700;font-size:14px;padding:10px 7px}'
+    + '.res{display:flex;gap:12px;margin-bottom:18px}.rc{flex:1;border:1px solid #ddd;border-radius:8px;padding:10px}'
+    + '.rc .l{font-size:10px;text-transform:uppercase;color:#666}.rc .v{font-size:18px;font-weight:700;color:#2D6A4F}'
+    + '@media print{body{padding:0}}</style></head><body>'
+    + '<h1>ADN Matero - Reporte de Ventas</h1>'
+    + '<div class="sub">Periodo: '+fmtF(desde)+' al '+fmtF(hasta)+' | Emitido '+new Date().toLocaleDateString('es-AR')+'</div>'
+    + '<div class="res"><div class="rc"><div class="l">Operaciones</div><div class="v">'+vs.length+'</div></div>'
+    + '<div class="rc"><div class="l">Cobrado</div><div class="v">'+formatPeso(cobrado)+'</div></div>'
+    + '<div class="rc"><div class="l">Total a facturar</div><div class="v">'+formatPeso(total)+'</div></div></div>'
+    + '<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Producto</th><th class="num">Cant</th>'
+    + '<th class="num">P.Unit</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>'
+    + filas
+    + '<tr class="tot"><td colspan="5">TOTAL</td><td class="num">'+formatPeso(total)+'</td><td></td></tr>'
+    + '</tbody></table></body></html>';
+  const w = window.open('', '_blank');
+  w.document.write(doc);
+  w.document.close();
+  setTimeout(()=>w.print(), 500);
 }
 
 // ══════════════════════════════════════════════════════════════
