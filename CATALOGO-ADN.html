@@ -97,7 +97,7 @@ textarea{resize:vertical;min-height:60px;}
           <option value="Yerbas">🌿 Yerbas</option>
           <option value="Mates">🪔 Mates</option>
           <option value="Bombillas">💨 Bombillas</option>
-          <option value="Canastas">🧺 Canastas</option>
+          <option value="Canastas">🧺 Canastas y Accesorios</option>
         </select>
       </div>
     </div>
@@ -147,7 +147,7 @@ textarea{resize:vertical;min-height:60px;}
     <button class="cat-pill" onclick="filtrarCat('Yerbas',this)">🌿 Yerbas</button>
     <button class="cat-pill" onclick="filtrarCat('Mates',this)">🪔 Mates</button>
     <button class="cat-pill" onclick="filtrarCat('Bombillas',this)">💨 Bombillas</button>
-    <button class="cat-pill" onclick="filtrarCat('Canastas',this)">🧺 Canastas</button>
+    <button class="cat-pill" onclick="filtrarCat('Canastas',this)">🧺 Canastas y Acc.</button>
   </div>
   <div class="card" id="listaCatalogo">
     <div class="loading">Cargando catálogo...</div>
@@ -169,7 +169,7 @@ textarea{resize:vertical;min-height:60px;}
         <option value="Yerbas">🌿 Yerbas</option>
         <option value="Mates">🪔 Mates</option>
         <option value="Bombillas">💨 Bombillas</option>
-        <option value="Canastas">🧺 Canastas</option>
+        <option value="Canastas">🧺 Canastas y Accesorios</option>
       </select></div>
       <div><label>Precio $</label><input type="number" id="editPrecio"></div>
     </div>
@@ -362,24 +362,32 @@ function renderLista(){
 
 // ── FOTOS NUEVAS ──────────────────────────────────────────
 function onFotosSeleccionadas(e){
-  Array.from(e.target.files).forEach(file=>{
-    if(file.size>2*1024*1024){toast('⚠️ Foto demasiado grande (máx 2MB)');return;}
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      fotosNuevas.push({file,dataUrl:ev.target.result});
-      renderFotosPreview('fotosPreview',fotosNuevas,idx=>fotosNuevas.splice(idx,1)||renderFotosPreview('fotosPreview',fotosNuevas,()=>{}));
+  Array.from(e.target.files).forEach(function(file){
+    if(file.size > 8*1024*1024){ toast('Foto demasiado grande (max 8MB)'); return; }
+    const reader = new FileReader();
+    reader.onload = function(ev){
+      fotosNuevas.push({file:file, dataUrl:ev.target.result});
+      renderFotosNuevas();
     };
     reader.readAsDataURL(file);
   });
-  e.target.value='';
+  e.target.value = '';
 }
 
-function renderFotosPreview(containerId,arr,onDel){
-  document.getElementById(containerId).innerHTML=arr.map((f,i)=>`
-    <div class="foto-thumb">
-      <img src="${f.dataUrl}" alt="foto">
-      <button class="foto-thumb-del" onclick="(${onDel.toString()})(${i});renderFotosPreview('${containerId}',window._fotArr_${containerId},window._fotDel_${containerId})">×</button>
-    </div>`).join('');
+function quitarFotoNueva(idx){
+  fotosNuevas.splice(idx,1);
+  renderFotosNuevas();
+}
+
+function renderFotosNuevas(){
+  const cont = document.getElementById('fotosPreview');
+  if(!cont) return;
+  cont.innerHTML = fotosNuevas.map(function(f,i){
+    return '<div class="foto-thumb">'
+         + '<img src="'+f.dataUrl+'" alt="foto">'
+         + '<button class="foto-thumb-del" onclick="quitarFotoNueva('+i+')">&#10005;</button>'
+         + '</div>';
+  }).join('');
 }
 
 async function subirFoto(file, productoId){

@@ -86,11 +86,12 @@ body{background:#f0ece1;font-family:'Segoe UI',system-ui,sans-serif;color:var(--
 
 /* CARRITO DRAWER */
 .carrito-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-end;justify-content:center;}
-.carrito-sheet{background:white;border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:85vh;display:flex;flex-direction:column;}
+.carrito-sheet{background:white;border-radius:20px 20px 0 0;width:100%;max-width:500px;height:92vh;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
+.carrito-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;}
 .carrito-header{padding:16px 20px;border-bottom:1px solid rgba(38,70,83,.1);display:flex;justify-content:space-between;align-items:center;}
 .carrito-header h3{font-size:18px;font-weight:700;}
 .carrito-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--gris);}
-.carrito-items{flex:1;overflow-y:auto;padding:12px 16px;}
+.carrito-items{padding:12px 16px;}
 .carrito-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(38,70,83,.08);}
 .ci-img{width:52px;height:52px;border-radius:8px;object-fit:cover;background:#e8e4da;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
 .ci-img img{width:100%;height:100%;object-fit:cover;border-radius:8px;}
@@ -101,7 +102,7 @@ body{background:#f0ece1;font-family:'Segoe UI',system-ui,sans-serif;color:var(--
 .ci-qty-btn{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--verde);background:white;color:var(--verde);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
 .ci-qty-val{font-size:13px;font-weight:700;min-width:20px;text-align:center;}
 .ci-delete{background:none;border:none;font-size:16px;cursor:pointer;color:var(--naranja);}
-.carrito-footer{padding:16px 20px;border-top:1px solid rgba(38,70,83,.1);}
+.carrito-footer{padding:14px 20px calc(14px + env(safe-area-inset-bottom));border-top:1px solid rgba(38,70,83,.1);background:white;flex-shrink:0;box-shadow:0 -3px 12px rgba(38,70,83,.08);}
 .carrito-total{display:flex;justify-content:space-between;font-size:16px;font-weight:700;margin-bottom:8px;}
 .carrito-total-val{color:var(--verde);font-size:20px;}
 
@@ -156,7 +157,7 @@ body{background:#f0ece1;font-family:'Segoe UI',system-ui,sans-serif;color:var(--
   <button class="cat-btn" onclick="filtrarCat('Yerbas',this)">🌿 Yerbas</button>
   <button class="cat-btn" onclick="filtrarCat('Mates',this)">🪔 Mates</button>
   <button class="cat-btn" onclick="filtrarCat('Bombillas',this)">💨 Bombillas</button>
-  <button class="cat-btn" onclick="filtrarCat('Canastas',this)">🧺 Canastas</button>
+  <button class="cat-btn" onclick="filtrarCat('Canastas',this)">🧺 Canastas y Accesorios</button>
 </div>
 
 <!-- BUSCAR -->
@@ -200,6 +201,7 @@ body{background:#f0ece1;font-family:'Segoe UI',system-ui,sans-serif;color:var(--
       <h3>🛒 Tu Pedido</h3>
       <button class="carrito-close" onclick="document.getElementById('carritoDrawer').style.display='none'">×</button>
     </div>
+    <div class="carrito-scroll">
     <div class="carrito-items" id="carritoItems"></div>
     <div class="form-pedido">
       <label>Tu nombre *</label>
@@ -238,15 +240,18 @@ body{background:#f0ece1;font-family:'Segoe UI',system-ui,sans-serif;color:var(--
 
       <!-- ENVIO -->
       <div id="seccionEnvio" style="display:none">
-        <label>Tu dirección (solo Nueva Córdoba) *</label>
+        <label>Tu dirección *</label>
         <input type="text" id="clienteDireccion" placeholder="Ej: Av. Hipólito Yrigoyen 1200, piso 3 dpto B">
-        <div style="background:#fff3cd;border-radius:8px;padding:8px 10px;font-size:11px;color:#856404;margin-bottom:10px">
-          🚚 Los envíos son solo dentro de <strong>Nueva Córdoba</strong>. Te contactamos para coordinar.
+        <div style="background:#d1fadf;border-radius:8px;padding:9px 11px;font-size:11.5px;color:#155724;margin-bottom:8px;line-height:1.45">
+          <strong>Envío GRATIS</strong> dentro de Nueva Córdoba.<br>
+          Fuera de la zona el costo se coordina por WhatsApp.
         </div>
+
       </div>
 
       <label>Notas adicionales (opcional)</label>
       <textarea id="clienteNotas" placeholder="Aclaraciones, horario preferido, etc."></textarea>
+    </div>
     </div>
     <div class="carrito-footer">
       <div class="carrito-total">
@@ -567,6 +572,11 @@ function setEntrega(tipo){
     secRetiro.style.display = 'none';
     secEnvio.style.display  = 'block';
   }
+  // Llevar la vista a la seccion recien abierta
+  setTimeout(function(){
+    const sec = tipo === 'retiro' ? secRetiro : secEnvio;
+    if(sec && sec.scrollIntoView) sec.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }, 120);
 }
 
 async function enviarWhatsApp(){
@@ -574,63 +584,58 @@ async function enviarWhatsApp(){
   const tel    = document.getElementById('clienteTel').value.trim();
   const notas  = document.getElementById('clienteNotas').value.trim();
 
-  if(!nombre){ toast('⚠️ Escribí tu nombre'); return; }
-  if(!tel)   { toast('⚠️ Ingresá tu teléfono'); return; }
-  if(!tipoEntrega){ toast('⚠️ Elegí si retirás o querés envío'); return; }
-  if(!carrito.length){ toast('⚠️ El carrito está vacío'); return; }
+  if(!nombre){ toast('Escribi tu nombre'); return; }
+  if(!tel)   { toast('Ingresa tu telefono'); return; }
+  if(!tipoEntrega){ toast('Elegi si retiras o queres envio'); return; }
+  if(!carrito.length){ toast('El carrito esta vacio'); return; }
 
-  // Validar entrega
   let entregaInfo = '';
+  let entregaTexto = '';
   if(tipoEntrega === 'retiro'){
     const punto = document.querySelector('input[name="puntoRetiro"]:checked');
-    if(!punto){ toast('⚠️ Elegí un punto de retiro'); return; }
-    entregaInfo = `📍 Retiro en: *${punto.value}*`;
+    if(!punto){ toast('Elegi un punto de retiro'); return; }
+    entregaInfo  = '\u{1F3E0} *Retiro en:* ' + punto.value;
+    entregaTexto = 'Retiro - ' + punto.value;
   } else {
     const dir = document.getElementById('clienteDireccion').value.trim();
-    if(!dir){ toast('⚠️ Ingresá tu dirección'); return; }
-    entregaInfo = `🚚 Envío a: *${dir}*`;
+    if(!dir){ toast('Ingresa tu direccion'); return; }
+    entregaInfo  = '\u{1F69A} *Envio a:* ' + dir + '\n\u{2705} Envio sin cargo dentro de Nueva Cordoba (fuera de zona, a coordinar)';
+    entregaTexto = 'Envio - ' + dir;
   }
 
   const total = carrito.reduce((s,c)=>s+c.precio*c.qty,0);
-
-  // Guardar pedido en Supabase
   const pedidoId = Date.now().toString();
   const items = carrito.map(c=>({
     nombre:c.nombre, codigo:c.codigo||null,
     qty:c.qty, precio:c.precio, subtotal:c.precio*c.qty
   }));
-  const entregaTexto = tipoEntrega === 'retiro'
-    ? `Retiro - ${document.querySelector('input[name="puntoRetiro"]:checked')?.value}`
-    : `Envío - ${document.getElementById('clienteDireccion').value.trim()}`;
 
-  await fetch(`${SUPA_URL}/rest/v1/pedidos`,{
+  await fetch(SUPA_URL + '/rest/v1/pedidos',{
     method:'POST',
     headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
-    body:JSON.stringify({id:pedidoId,cliente_nombre:nombre,cliente_tel:tel,notas:`${entregaTexto}${notas?' — '+notas:''}`,items,total,estado:'pendiente'})
+    body:JSON.stringify({id:pedidoId,cliente_nombre:nombre,cliente_tel:tel,notas:entregaTexto+(notas?' - '+notas:''),items,total,estado:'pendiente'})
   });
 
-  // Armar mensaje WhatsApp amigable
-  const linea = '━━━━━━━━━━━━━━━━━━━━━';
-  let msg = `¡Hola! 👋 Soy *${nombre}* y quiero hacer un pedido:\n\n`;
-  msg += `${linea}\n`;
-  msg += `🛒 *MI PEDIDO:*\n\n`;
-  carrito.forEach((c,i)=>{
-    msg += `${i+1}. ${c.nombre}\n`;
-    msg += `   ${c.qty} unidad${c.qty>1?'es':''} × ${formatPeso(c.precio)} = *${formatPeso(c.precio*c.qty)}*\n\n`;
+  const linea = '--------------------------';
+  let msg = '\u{1F9C9} *ADN MATERO* \u{1F9C9}\n\n';
+  msg += 'Hola! Soy *' + nombre + '* y quiero hacer un pedido \u{1F60A}\n\n';
+  msg += linea + '\n';
+  msg += '\u{1F6D2} *MI PEDIDO*\n\n';
+  carrito.forEach(function(c,i){
+    msg += (i+1) + '. ' + c.nombre + '\n';
+    msg += '     ' + c.qty + ' x ' + formatPeso(c.precio) + ' = *' + formatPeso(c.precio*c.qty) + '*\n\n';
   });
-  msg += `${linea}\n`;
-  msg += `💰 *Total: ${formatPeso(total)}*\n`;
-  msg += `${linea}\n\n`;
-  msg += `${entregaInfo}\n`;
-  msg += `📱 *Mi teléfono:* ${tel}\n`;
-  if(notas) msg += `📝 *Notas:* ${notas}\n`;
-  msg += `\n_Ref: #${pedidoId.slice(-6)}_\n`;
-  msg += `\n¡Muchas gracias! 🌿`;
+  msg += linea + '\n';
+  msg += '\u{1F4B5} *TOTAL: ' + formatPeso(total) + '*\n';
+  msg += linea + '\n\n';
+  msg += entregaInfo + '\n\n';
+  msg += '\u{1F4F1} *Mi telefono:* ' + tel + '\n';
+  if(notas) msg += '\u{1F4DD} *Notas:* ' + notas + '\n';
+  msg += '\n_Pedido #' + pedidoId.slice(-6) + '_\n';
+  msg += '\nMuchas gracias! \u{1F91D}';
 
-  const url = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
-  window.open(url,'_blank');
+  window.open('https://wa.me/' + WA_NUMBER + '?text=' + encodeURIComponent(msg), '_blank');
 
-  // Limpiar
   carrito = [];
   tipoEntrega = '';
   actualizarCarritoUI();
@@ -639,11 +644,32 @@ async function enviarWhatsApp(){
   document.getElementById('clienteTel').value='';
   document.getElementById('clienteNotas').value='';
   document.getElementById('clienteDireccion').value='';
-  document.querySelectorAll('input[name="puntoRetiro"]').forEach(r=>r.checked=false);
+  document.querySelectorAll('input[name="puntoRetiro"]').forEach(function(r){ r.checked=false; });
   document.getElementById('seccionRetiro').style.display='none';
   document.getElementById('seccionEnvio').style.display='none';
+  // Reserva optimista: descontar del stock local lo que se acaba de pedir
+  items.forEach(function(it){
+    const k = normalizar(it.nombre);
+    if(stockPorProducto[k] !== undefined) stockPorProducto[k] -= it.qty;
+  });
   renderProductos();
-  toast('✅ ¡Pedido enviado!');
+  toast('Pedido enviado!');
+  // Traer el stock real del servidor por si hubo otros pedidos
+  setTimeout(refrescarStock, 2000);
+}
+
+// Recalcula stock leyendo ventas y compras, sin recargar todo el catalogo
+async function refrescarStock(){
+  try{
+    const [ventas, compras] = await Promise.all([
+      sbGet('ventas','select=producto,cantidad&limit=5000'),
+      sbGet('compras','select=producto,cantidad&limit=5000')
+    ]);
+    if(ventas.length || compras.length){
+      calcularStock(ventas, compras);
+      renderProductos();
+    }
+  }catch(e){}
 }
 
 // ── HELPERS ─────────────────────────────────────────────────

@@ -498,7 +498,7 @@ textarea{resize:vertical;min-height:50px;}
   <div class="form-row">
     <div><label>Nombre del Producto</label><input type="text" id="prodNombre" placeholder="Ej: Canarias Naranja 1Kg"></div>
     <div><label>Categoría</label><select id="prodCategoria" onchange="sugerirCodigo()">
-      <option value="Yerbas">🌿 Yerbas</option><option value="Mates">🪔 Mates</option><option value="Bombillas">💨 Bombillas</option><option value="Canastas">🧺 Canastas</option>
+      <option value="Yerbas">🌿 Yerbas</option><option value="Mates">🪔 Mates</option><option value="Bombillas">💨 Bombillas</option><option value="Canastas">🧺 Canastas y Accesorios</option>
     </select></div>
   </div>
   <div class="form-row">
@@ -521,7 +521,7 @@ textarea{resize:vertical;min-height:50px;}
     <button class="pill verde" onclick="filtrarCatProd(this,'Yerbas')">🌿 Yerbas</button>
     <button class="pill verde" onclick="filtrarCatProd(this,'Mates')">🪔 Mates</button>
     <button class="pill verde" onclick="filtrarCatProd(this,'Bombillas')">💨 Bombillas</button>
-    <button class="pill verde" onclick="filtrarCatProd(this,'Canastas')">🧺 Canastas</button>
+    <button class="pill verde" onclick="filtrarCatProd(this,'Canastas')">🧺 Canastas y Acc.</button>
   </div>
   <div id="listProductos" class="scroll-area" style="max-height:260px"></div>
 </div>
@@ -531,10 +531,10 @@ textarea{resize:vertical;min-height:50px;}
   <div class="config-section">
     <h4>💼 Datos del Negocio</h4>
     <div class="form-row one"><div><label>Capital Inicial $</label><input type="number" id="cfgCapital" value="678000"></div></div>
-    <div class="form-row">
+    <div class="form-row one">
       <div><label>Adelantos / Retiros $</label><input type="number" id="cfgAdelantos" value="0"></div>
-      <div><label>Saldo en Caja $</label><input type="number" id="cfgSaldoCaja" value="0"></div>
     </div>
+    <input type="hidden" id="cfgSaldoCaja" value="0">
   </div>
   <div class="config-section">
     <h4>⚠️ Alertas de Stock</h4>
@@ -548,11 +548,39 @@ textarea{resize:vertical;min-height:50px;}
   <div class="config-section">
     <h4>🔄 Gestión de Datos</h4>
     <button class="btn btn-primary" onclick="guardarConfig()">💾 GUARDAR CONFIGURACIÓN</button>
-    <button class="btn btn-secondary" onclick="recargarDesdeExcel()" style="margin-top:6px">🔁 RECARGAR DATOS DEL EXCEL</button>
     <button class="btn btn-danger" onclick="resetDatos()" style="margin-top:6px">⚠ RESETEAR DATOS NUEVOS</button>
   </div>
   <div style="text-align:center;margin-top:12px;font-size:10px;color:rgba(38,70,83,.4)">
-    ADN Tope Gama — Panel v1.0 · Datos en este navegador
+    ADN Matero — Panel de Gestión · Datos sincronizados en la nube
+  </div>
+</div>
+
+<!-- MODAL EDITAR COMPRA -->
+<div id="modalEditarCompra" class="modal-overlay" style="display:none" onclick="cerrarModalEditarCompra(event)">
+  <div class="modal-box">
+    <h3>Editar Compra</h3>
+    <div class="form-row">
+      <div><label>Fecha</label><input type="date" id="ecFecha"></div>
+      <div><label>Proveedor</label><input type="text" id="ecProveedor" placeholder="Jota / Margo..."></div>
+    </div>
+    <div class="form-row one">
+      <div><label>Producto</label><input type="text" id="ecProducto"></div>
+    </div>
+    <div class="form-row">
+      <div><label>Cantidad</label><input type="number" id="ecCantidad" min="1" oninput="calcEditCompraTotal()"></div>
+      <div><label>Costo Unit $</label><input type="number" id="ecCosto" oninput="calcEditCompraTotal()"></div>
+    </div>
+    <div class="form-row one">
+      <div><label>Notas</label><input type="text" id="ecNotas"></div>
+    </div>
+    <div class="precio-display" style="margin-bottom:12px;background:var(--naranja)">
+      <span>Total</span><span class="precio-total" id="ecTotal">$0</span>
+    </div>
+    <input type="hidden" id="ecId">
+    <div class="modal-btns">
+      <button class="modal-btn-cancel" onclick="document.getElementById('modalEditarCompra').style.display='none'">Cancelar</button>
+      <button class="modal-btn-confirm" onclick="guardarEdicionCompra()">Guardar</button>
+    </div>
   </div>
 </div>
 
@@ -1103,7 +1131,7 @@ function reconstruirSelectores(){
     {label:'🌿 YERBAS',    cat:'Yerbas',     items: PRODUCTOS_YERBAS},
     {label:'🪔 MATES',     cat:'Mates',      items: PRODUCTOS_MATES},
     {label:'💨 BOMBILLAS', cat:'Bombillas',  items: PRODUCTOS_BOMBILLAS},
-    {label:'🧺 CANASTAS',  cat:'Canastas',   items: PRODUCTOS_CANASTAS},
+    {label:'🧺 CANASTAS Y ACCESORIOS',  cat:'Canastas',   items: PRODUCTOS_CANASTAS},
   ];
   const custom = appData.productosCustom || [];
 
@@ -1381,8 +1409,10 @@ async function guardarEdicionVenta(){
   await sbUpdate('ventas', id, {fecha,cliente,producto,cantidad,precio_unit:precio,total,cobrada,monto_cobrado:montoCobrado,notas});
 
   document.getElementById('modalEditarVenta').style.display = 'none';
-  renderDashboard(); renderVentasPendientes();
-  toast('✅ Venta actualizada');
+  renderDashboard(); renderVentasPendientes(); renderStock();
+  const ph = document.getElementById('panel-historial');
+  if(ph && ph.classList.contains('active')) renderHistorial();
+  toast('Venta actualizada');
 }
 
 // ─── MODAL CONFIRMAR COBRO ───────────────────────────────────
@@ -1748,12 +1778,13 @@ function renderCaja(){
 function renderMargenes(){
   const q=(document.getElementById('cajaSearch')?.value||'').toLowerCase();
   document.getElementById('tbodyMargenes').innerHTML=['Yerbas','Mates','Bombillas','Canastas'].map(cat=>{
+    const catLabel = cat==='Canastas' ? 'Canastas y Acc.' : cat;
     const ps=TODOS_LOS_PRODUCTOS.filter(p=>p.categoria===cat);
     const vt=ps.reduce((s,p)=>s+appData.ventas.filter(v=>normalizar(v.producto)===normalizar(p.nombre)).reduce((ss,v)=>ss+v.total,0),0);
     const ct=ps.reduce((s,p)=>{const vd=appData.ventas.filter(v=>normalizar(v.producto)===normalizar(p.nombre)).reduce((ss,v)=>ss+v.cantidad,0);return s+vd*p.costoBase;},0);
     const res=vt-ct,cls=res>=0?'tag-cobrada':'tag-pendiente';
     const cc=cat==='Yerbas'?'cat-yerbas':cat==='Mates'?'cat-mates':cat==='Bombillas'?'cat-bombillas':'cat-canastas';
-    return`<tr><td><span class="cat-badge ${cc}">${cat}</span></td><td>${formatPeso(vt)}</td><td>${formatPeso(ct)}</td><td><span class="tag ${cls}">${formatPeso(res)}</span></td></tr>`;}).join('');
+    return`<tr><td><span class="cat-badge ${cc}">${catLabel}</span></td><td>${formatPeso(vt)}</td><td>${formatPeso(ct)}</td><td><span class="tag ${cls}">${formatPeso(res)}</span></td></tr>`;}).join('');
   document.getElementById('tbodyMargenesProd').innerHTML=TODOS_LOS_PRODUCTOS.filter(p=>!q||normalizar(p.nombre).includes(q)).map(p=>{
     const mg=p.costoBase>0?(p.precioVenta-p.costoBase)/p.precioVenta*100:0,mc=mg>=20?'margen-good':mg>=10?'margen-mid':'margen-low';
     const cc=p.categoria==='Yerbas'?'cat-yerbas':p.categoria==='Mates'?'cat-mates':p.categoria==='Bombillas'?'cat-bombillas':'cat-canastas';
@@ -1805,7 +1836,7 @@ function renderHistorialVentas(q){
   document.getElementById('histThead').innerHTML='<tr><th>Fecha</th><th>Cliente</th><th>Producto</th><th>Cnt</th><th>P.Unit</th><th>Total</th><th>Est.</th><th></th></tr>';
   document.getElementById('histTbody').innerHTML=!pag.length?'<tr><td colspan="8" style="text-align:center;padding:16px;opacity:.4">Sin resultados</td></tr>':
     pag.map(v=>{const tc=v.cliente?.toLowerCase()==='perdida'?'tag-perdida':v.cobrada?'tag-cobrada':'tag-pendiente',tt=v.cliente?.toLowerCase()==='perdida'?'💀':v.cobrada?'✓':'⏳';
-      return`<tr style="${v.historica?'opacity:.6':''}"><td style="white-space:nowrap">${formatFecha(v.fecha)}</td><td style="max-width:55px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.cliente||'—'}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v.producto}">${v.producto.length>14?v.producto.slice(0,13)+'…':v.producto}</td><td>${v.cantidad}</td><td>${formatPeso(v.precioUnit)}</td><td><strong>${formatPeso(v.total)}</strong></td><td><span class="tag ${tc}">${tt}</span></td><td>${v.historica?'':'<button class="btn-icon" onclick="eliminarVenta(\''+v.id+'\')">🗑</button>'}</td></tr>`;}).join('');
+      return`<tr style="${v.historica?'opacity:.6':''}"><td style="white-space:nowrap">${formatFecha(v.fecha)}</td><td style="max-width:55px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.cliente||'—'}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v.producto}">${v.producto.length>14?v.producto.slice(0,13)+'…':v.producto}</td><td>${v.cantidad}</td><td>${formatPeso(v.precioUnit)}</td><td><strong>${formatPeso(v.total)}</strong></td><td><span class="tag ${tc}">${tt}</span></td><td style="white-space:nowrap">${v.historica?'':'<button class="btn-icon" onclick="abrirEditarVenta(\''+v.id+'\')" title="Editar">✏️</button><button class="btn-icon" onclick="eliminarVenta(\''+v.id+'\')" title="Eliminar">🗑</button>'}</td></tr>`;}).join('');
   document.getElementById('pagInfo').textContent=tp>0?`${histPagina+1}/${tp} (${datos.length})`:'0';
   document.getElementById('pagPrev').disabled=histPagina===0;
   document.getElementById('pagNext').disabled=histPagina>=tp-1;
@@ -1830,12 +1861,60 @@ function renderHistorialCompras(q){
   const pag=datos.slice(histPagina*HIST_POR_PAG,(histPagina+1)*HIST_POR_PAG);
   document.getElementById('histThead').innerHTML='<tr><th>Fecha</th><th>Proveedor</th><th>Producto</th><th>Cnt</th><th>C.Unit</th><th>Total</th><th></th></tr>';
   document.getElementById('histTbody').innerHTML=!pag.length?'<tr><td colspan="7" style="text-align:center;padding:16px;opacity:.4">Sin resultados</td></tr>':
-    pag.map(c=>`<tr style="${c.historica?'opacity:.6':''}"><td style="white-space:nowrap">${formatFecha(c.fecha)}</td><td style="max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.proveedor||'—'}</td><td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.producto}">${c.producto.length>14?c.producto.slice(0,13)+'…':c.producto}</td><td>${c.cantidad}</td><td>${formatPeso(c.costoUnit)}</td><td><strong>${formatPeso(c.total)}</strong></td><td>${c.historica?'':'<button class="btn-icon" onclick="eliminarCompra(\''+c.id+'\')">🗑</button>'}</td></tr>`).join('');
+    pag.map(c=>`<tr style="${c.historica?'opacity:.6':''}"><td style="white-space:nowrap">${formatFecha(c.fecha)}</td><td style="max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.proveedor||'—'}</td><td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.producto}">${c.producto.length>14?c.producto.slice(0,13)+'…':c.producto}</td><td>${c.cantidad}</td><td>${formatPeso(c.costoUnit)}</td><td><strong>${formatPeso(c.total)}</strong></td><td style="white-space:nowrap">${c.historica?'':'<button class="btn-icon" onclick="abrirEditarCompra(\''+c.id+'\')" title="Editar">✏️</button><button class="btn-icon" onclick="eliminarCompra(\''+c.id+'\')" title="Eliminar">🗑</button>'}</td></tr>`).join('');
   document.getElementById('pagInfo').textContent=tp>0?`${histPagina+1}/${tp} (${datos.length})`:'0';
   document.getElementById('pagPrev').disabled=histPagina===0;
   document.getElementById('pagNext').disabled=histPagina>=tp-1;
 }
 function eliminarVenta(id){if(!confirm('¿Eliminar esta venta?'))return;appData.ventas=appData.ventas.filter(v=>v.id!==id);sbDelete('ventas',id);renderHistorial();renderDashboard();toast('🗑 Eliminada');}
+// ---- EDITAR COMPRA ----
+function abrirEditarCompra(id){
+  const c = appData.compras.find(function(x){ return x.id===id; });
+  if(!c) return;
+  document.getElementById('ecId').value        = id;
+  document.getElementById('ecFecha').value     = (c.fecha||'').slice(0,10);
+  document.getElementById('ecProveedor').value = c.proveedor||'';
+  document.getElementById('ecProducto').value  = c.producto;
+  document.getElementById('ecCantidad').value  = c.cantidad;
+  document.getElementById('ecCosto').value     = c.costoUnit;
+  document.getElementById('ecNotas').value     = c.notas||'';
+  document.getElementById('ecTotal').textContent = formatPeso(c.total);
+  document.getElementById('modalEditarCompra').style.display = 'flex';
+}
+
+function calcEditCompraTotal(){
+  const q = parseFloat(document.getElementById('ecCantidad').value)||0;
+  const p = parseFloat(document.getElementById('ecCosto').value)||0;
+  document.getElementById('ecTotal').textContent = formatPeso(q*p);
+}
+
+function cerrarModalEditarCompra(e){
+  if(e.target.id==='modalEditarCompra') document.getElementById('modalEditarCompra').style.display='none';
+}
+
+async function guardarEdicionCompra(){
+  const id        = document.getElementById('ecId').value;
+  const fecha     = document.getElementById('ecFecha').value;
+  const proveedor = document.getElementById('ecProveedor').value.trim();
+  const producto  = document.getElementById('ecProducto').value.trim();
+  const cantidad  = parseFloat(document.getElementById('ecCantidad').value)||0;
+  const costo     = parseFloat(document.getElementById('ecCosto').value)||0;
+  const notas     = document.getElementById('ecNotas').value.trim();
+  if(!producto||!cantidad||!costo){ toast('Completa todos los campos'); return; }
+  const total = cantidad*costo;
+
+  const c = appData.compras.find(function(x){ return x.id===id; });
+  if(c) Object.assign(c,{fecha,proveedor,producto,cantidad,costoUnit:costo,total,notas});
+
+  await sbUpdate('compras', id, {fecha,proveedor,producto,cantidad,costo_unit:costo,total,notas});
+
+  document.getElementById('modalEditarCompra').style.display='none';
+  renderDashboard(); renderUltimasCompras(); renderStock(); renderCaja();
+  const ph = document.getElementById('panel-historial');
+  if(ph && ph.classList.contains('active')) renderHistorial();
+  toast('Compra actualizada');
+}
+
 function eliminarCompra(id){if(!confirm('¿Eliminar esta compra?'))return;appData.compras=appData.compras.filter(c=>c.id!==id);sbDelete('compras',id);renderHistorial();renderDashboard();toast('🗑 Eliminada');}
 
 // ══════════════════════════════════════════════════════════════
@@ -1931,13 +2010,6 @@ function exportarCSVVentas(){
   const b=new Blob(['\uFEFF'+[h.join(','),...rows].join('\n')],{type:'text/csv;charset=utf-8;'}),u=URL.createObjectURL(b),a=document.createElement('a');
   a.href=u;a.download=`adn_ventas_${new Date().toISOString().split('T')[0]}.csv`;a.click();URL.revokeObjectURL(u);toast('⬇ CSV exportado');
 }
-async function recargarDesdeExcel(){
-  if(!confirm('¿Recargar datos históricos del Excel? Se van a reemplazar los registros históricos.'))return;
-  mostrarCargando('Recargando datos históricos…');
-  await cargarHistoricos();
-  renderDashboard(); renderVentasPendientes(); renderUltimasCompras(); renderStock(); renderCaja(); renderMargenes();
-  toast('✅ Datos recargados');
-}
 async function resetDatos(){
   if(!confirm('¿Borrar registros nuevos? Los históricos del Excel se mantienen.'))return;
   const aEliminar = [
@@ -1991,23 +2063,63 @@ function getVentasReporte(){
   }).sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
 }
 
+function getGastosReporte(){
+  const rd = document.getElementById('repDesde'), rh = document.getElementById('repHasta');
+  if(!rd||!rh) return [];
+  const desde = rd.value, hasta = rh.value;
+  if(!desde||!hasta) return [];
+  return (appData.gastos||[]).filter(function(g){
+    const f = (g.fecha||'').slice(0,10);
+    return f && f >= desde && f <= hasta;
+  });
+}
+
+function getComprasReporte(){
+  const rd = document.getElementById('repDesde'), rh = document.getElementById('repHasta');
+  if(!rd||!rh) return [];
+  const desde = rd.value, hasta = rh.value;
+  if(!desde||!hasta) return [];
+  return appData.compras.filter(function(c){
+    const f = (c.fecha||'').slice(0,10);
+    return f && f !== 'Historica' && f >= desde && f <= hasta;
+  });
+}
+
 function renderResumenReporte(){
   const cont = document.getElementById('reporteResumen');
   if(!cont) return;
   const vs = getVentasReporte();
-  const total = vs.reduce((s,v)=>s+(parseFloat(v.total)||0),0);
-  const cobrado = vs.filter(v=>v.cobrada).reduce((s,v)=>s+(parseFloat(v.total)||0),0)
-                + vs.filter(v=>!v.cobrada&&v.montoCobrado>0).reduce((s,v)=>s+(parseFloat(v.montoCobrado)||0),0);
-  const unidades = vs.reduce((s,v)=>s+(parseFloat(v.cantidad)||0),0);
+  const total = vs.reduce(function(s,v){ return s+(parseFloat(v.total)||0); },0);
+  const cobrado = vs.filter(function(v){return v.cobrada;}).reduce(function(s,v){ return s+(parseFloat(v.total)||0); },0)
+                + vs.filter(function(v){return !v.cobrada && v.montoCobrado>0;}).reduce(function(s,v){ return s+(parseFloat(v.montoCobrado)||0); },0);
+  const unidades = vs.reduce(function(s,v){ return s+(parseFloat(v.cantidad)||0); },0);
+  const gastos  = getGastosReporte().reduce(function(s,g){ return s+(parseFloat(g.monto)||0); },0);
+  const compras = getComprasReporte().reduce(function(s,c){ return s+(parseFloat(c.total)||0); },0);
+  const neto = total - gastos - compras;
+
   const rd = document.getElementById('repDesde').value, rh = document.getElementById('repHasta').value;
-  const fmtCorto = f => f ? f.split('-').reverse().slice(0,2).join('/') : '-';
+  const fmtCorto = function(f){ return f ? f.split('-').reverse().slice(0,2).join('/') : '-'; };
   document.getElementById('reporteRango').textContent = fmtCorto(rd) + ' al ' + fmtCorto(rh);
-  cont.innerHTML = !vs.length
-    ? '<span style="opacity:.5">Sin ventas en este periodo</span>'
-    : '<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span>Operaciones</span><strong>'+vs.length+'</strong></div>'
-    + '<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span>Unidades</span><strong>'+unidades+'</strong></div>'
-    + '<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span>Cobrado</span><strong style="color:var(--verde)">'+formatPeso(cobrado)+'</strong></div>'
-    + '<div style="display:flex;justify-content:space-between;border-top:1px solid rgba(38,70,83,.15);padding-top:5px;margin-top:5px"><strong>TOTAL A FACTURAR</strong><strong style="color:var(--verde);font-size:15px">'+formatPeso(total)+'</strong></div>';
+
+  if(!vs.length && !gastos && !compras){
+    cont.innerHTML = '<span style="opacity:.5">Sin movimientos en este periodo</span>';
+    return;
+  }
+  const fila = function(l,v,color,bold){
+    return '<div style="display:flex;justify-content:space-between;margin-bottom:3px">'
+         + '<span'+(bold?' style="font-weight:700"':'')+'>'+l+'</span>'
+         + '<strong'+(color?' style="color:'+color+'"':'')+'>'+v+'</strong></div>';
+  };
+  cont.innerHTML =
+      fila('Operaciones', vs.length)
+    + fila('Unidades', unidades)
+    + fila('Cobrado', formatPeso(cobrado), 'var(--verde)')
+    + '<div style="border-top:1px solid rgba(38,70,83,.15);padding-top:5px;margin-top:5px"></div>'
+    + fila('TOTAL A FACTURAR', formatPeso(total), 'var(--verde)', true)
+    + (compras ? fila('(-) Compras del periodo', formatPeso(compras), 'var(--naranja)') : '')
+    + (gastos  ? fila('(-) Gastos del periodo',  formatPeso(gastos),  'var(--naranja)') : '')
+    + ((compras||gastos) ? '<div style="border-top:1px solid rgba(38,70,83,.15);padding-top:5px;margin-top:5px"></div>'
+        + fila('RESULTADO NETO', formatPeso(neto), neto>=0?'var(--verde)':'var(--naranja)', true) : '');
 }
 
 function descargarReporteCSV(){
@@ -2040,6 +2152,8 @@ function descargarReporteHTML(){
   const total = vs.reduce((s,v)=>s+(parseFloat(v.total)||0),0);
   const cobrado = vs.filter(v=>v.cobrada).reduce((s,v)=>s+(parseFloat(v.total)||0),0)
                 + vs.filter(v=>!v.cobrada&&v.montoCobrado>0).reduce((s,v)=>s+(parseFloat(v.montoCobrado)||0),0);
+  const gastosRep  = getGastosReporte().reduce(function(s,g){ return s+(parseFloat(g.monto)||0); },0);
+  const comprasRep = getComprasReporte().reduce(function(s,c){ return s+(parseFloat(c.total)||0); },0);
   const fmtF = f => (f||'').split('-').reverse().join('/');
   let filas = '';
   vs.forEach(v=>{
@@ -2063,6 +2177,10 @@ function descargarReporteHTML(){
     + '<div class="res"><div class="rc"><div class="l">Operaciones</div><div class="v">'+vs.length+'</div></div>'
     + '<div class="rc"><div class="l">Cobrado</div><div class="v">'+formatPeso(cobrado)+'</div></div>'
     + '<div class="rc"><div class="l">Total a facturar</div><div class="v">'+formatPeso(total)+'</div></div></div>'
+    + ((gastosRep||comprasRep) ? '<div class="res">'
+        + (comprasRep ? '<div class="rc"><div class="l">Compras del periodo</div><div class="v" style="color:#E76F51">-'+formatPeso(comprasRep)+'</div></div>' : '')
+        + (gastosRep  ? '<div class="rc"><div class="l">Gastos del periodo</div><div class="v" style="color:#E76F51">-'+formatPeso(gastosRep)+'</div></div>' : '')
+        + '<div class="rc"><div class="l">Resultado neto</div><div class="v">'+formatPeso(total-gastosRep-comprasRep)+'</div></div></div>' : '')
     + '<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Producto</th><th class="num">Cant</th>'
     + '<th class="num">P.Unit</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>'
     + filas
@@ -2133,7 +2251,9 @@ async function renderPedidos(){
       ${esPendiente?`<div class="pedido-btns">
         <button class="btn-confirmar" onclick="confirmarPedido('${p.id}')">✅ Confirmar y registrar venta</button>
         <button class="btn-cancelar" onclick="cancelarPedido('${p.id}')">❌ Cancelar</button>
-      </div>`:''}
+      </div>`: (p.estado==='confirmado'?`<div class="pedido-btns">
+        <button class="btn-cancelar" onclick="cancelarPedido('${p.id}')">↩ Anular pedido y sus ventas</button>
+      </div>`:'')}
     </div>`;
   }).join('');
 }
@@ -2187,9 +2307,31 @@ async function confirmarPedido(pedidoId){
 }
 
 async function cancelarPedido(pedidoId){
-  if(!confirm('¿Cancelar este pedido?')) return;
+  const pedido = pedidosData.find(function(p){ return p.id===pedidoId; });
+  const yaConfirmado = pedido && pedido.estado === 'confirmado';
+  const ref = pedidoId.slice(-6);
+
+  if(yaConfirmado){
+    if(!confirm('Este pedido ya fue confirmado.\n\nAl cancelarlo se van a ELIMINAR las ventas que gener\u00f3 y el stock vuelve a estar disponible.\n\n\u00bfContinuar?')) return;
+    // Buscar y eliminar las ventas creadas por este pedido
+    const aBorrar = appData.ventas.filter(function(v){
+      return (v.notas||'').indexOf('Pedido #'+ref) !== -1;
+    });
+    for(let i=0;i<aBorrar.length;i++){
+      await sbDelete('ventas', aBorrar[i].id);
+    }
+    appData.ventas = appData.ventas.filter(function(v){
+      return (v.notas||'').indexOf('Pedido #'+ref) === -1;
+    });
+    await sbUpdate('pedidos', pedidoId, {estado:'cancelado'});
+    renderPedidos(); renderDashboard(); renderVentasPendientes(); renderStock();
+    toast('Pedido cancelado - ' + aBorrar.length + ' venta(s) eliminadas');
+    return;
+  }
+
+  if(!confirm('\u00bfCancelar este pedido?')) return;
   await sbUpdate('pedidos', pedidoId, {estado:'cancelado'});
-  toast('❌ Pedido cancelado');
+  toast('Pedido cancelado');
   renderPedidos();
 }
 
