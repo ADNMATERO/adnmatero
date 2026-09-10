@@ -148,6 +148,8 @@ textarea{resize:vertical;min-height:60px;}
     </div>
     <div id="importResultado" style="display:none;margin-bottom:10px;font-size:12px;padding:8px 10px;border-radius:8px;background:#d1fadf;color:#155724"></div>
     <button class="btn btn-primary" onclick="importarDesdeADNMatero()">⬇️ IMPORTAR PRODUCTOS NUEVOS</button>
+    <button class="btn" style="margin-top:6px;background:var(--gris);color:white" onclick="asignarCodigosCatalogo()">🔢 ASIGNAR CÓDIGOS FALTANTES</button>
+    <div id="codCatEstado" style="font-size:11.5px;color:var(--gris2);opacity:.8;margin-top:8px;line-height:1.4"></div>
   </div>
   <div class="sec-title">📦 Productos en Catálogo</div>
   <div class="cat-pills">
@@ -264,6 +266,50 @@ document.addEventListener('DOMContentLoaded', async () => {
   await cargarCatalogo();
 });
 
+const PREFIJO_CAT = {Yerbas:1000, Mates:2000, Bombillas:3000, Canastas:4000};
+
+function renderEstadoCodCat(){
+  const el = document.getElementById('codCatEstado');
+  if(!el) return;
+  const sin = catalogo.filter(function(p){ return !p.codigo; });
+  el.innerHTML = sin.length
+    ? '<strong style="color:var(--naranja)">' + sin.length + ' producto(s) sin codigo</strong> de ' + catalogo.length + ' en el catalogo.'
+    : 'Todos los productos del catalogo tienen codigo (' + catalogo.length + ').';
+}
+
+async function asignarCodigosCatalogo(){
+  const btn = event && event.currentTarget;
+  const sin = catalogo.filter(function(p){ return !p.codigo; });
+  if(!sin.length){ toast('Todos ya tienen codigo'); return; }
+  if(!confirm('Asignar codigo a ' + sin.length + ' producto(s)?\n\nLos existentes no se tocan.')) return;
+
+  if(btn){ btn.disabled = true; btn.textContent = 'Asignando...'; }
+
+  const usados = new Set();
+  catalogo.forEach(function(p){ if(p.codigo) usados.add(p.codigo); });
+
+  const orden = sin.slice().sort(function(a,b){
+    if(a.categoria !== b.categoria) return String(a.categoria).localeCompare(String(b.categoria));
+    return String(a.nombre).localeCompare(String(b.nombre));
+  });
+
+  let n = 0;
+  for(let i=0;i<orden.length;i++){
+    const p = orden[i];
+    const base = PREFIJO_CAT[p.categoria] || 1000;
+    let cod = base + 1;
+    while(usados.has(cod) && cod < base+999) cod++;
+    usados.add(cod);
+    p.codigo = cod;
+    await sbUpdate('catalogo', p.id, {codigo: cod, orden: cod});
+    n++;
+  }
+
+  if(btn){ btn.disabled = false; btn.textContent = '🔢 ASIGNAR CÓDIGOS FALTANTES'; }
+  toast(n + ' codigo(s) asignados');
+  await cargarCatalogo();
+}
+
 async function importarDesdeADNMatero(){
   const btn = event.currentTarget;
   btn.textContent = '⏳ Importando...';
@@ -340,6 +386,7 @@ async function cargarCatalogo(){
     fotosMap[f.producto_id].push({id:f.id,url:f.url});
   });
   renderLista();
+  renderEstadoCodCat();
 }
 
 function filtrarCat(cat,el){

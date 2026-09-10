@@ -520,6 +520,13 @@ textarea{resize:vertical;min-height:50px;}
     <span>Margen estimado</span><span class="precio-total" id="prodMargenValor">—</span>
   </div>
   <button class="btn btn-primary" onclick="guardarProducto()">🏷️ AGREGAR PRODUCTO</button>
+  <!-- ASIGNAR CODIGOS -->
+  <div style="background:white;border-radius:10px;padding:12px;margin-top:14px;box-shadow:0 2px 6px var(--sombra);border-left:3px solid var(--verde3)">
+    <div style="font-family:'Bebas Neue';font-size:15px;letter-spacing:1px">Codigos de Producto</div>
+    <div id="codigosEstado" style="font-size:11.5px;color:var(--gris2);opacity:.8;margin:4px 0 9px;line-height:1.4">Revisando...</div>
+    <button class="btn btn-primary" style="margin-top:0" onclick="asignarCodigosFaltantes()">Asignar codigos faltantes</button>
+  </div>
+
   <div class="sec-title" style="margin-top:14px">Productos Activos <span class="line"></span></div>
   <div class="search-wrap" style="margin-top:6px"><span class="search-icon">🔍</span>
     <input type="text" id="prodSearch" placeholder="Filtrar productos…" oninput="renderListaProductos()">
@@ -962,7 +969,8 @@ async function cargarDatos() {
 
     appData.productosCustom = custom.map(p=>({
       id: p.id, nombre: p.nombre, categoria: p.categoria,
-      precioVenta: p.precio_venta, costoBase: p.costo_base, custom: true
+      precioVenta: p.precio_venta, costoBase: p.costo_base,
+      codigo: p.codigo || null, custom: true
     }));
 
     if(cfgArr.length > 0){
@@ -1064,7 +1072,7 @@ async function refrescarDatos(){
     if(gastos.length > 0)
       appData.gastos = gastos.map(g=>({id:g.id,fecha:g.fecha,tipo:g.tipo,descripcion:g.descripcion,monto:g.monto,pagado:g.pagado,notas:g.notas||''}));
     if(custom.length > 0)
-      appData.productosCustom = custom.map(p=>({id:p.id,nombre:p.nombre,categoria:p.categoria,precioVenta:p.precio_venta,costoBase:p.costo_base,custom:true}));
+      appData.productosCustom = custom.map(p=>({id:p.id,nombre:p.nombre,categoria:p.categoria,precioVenta:p.precio_venta,costoBase:p.costo_base,codigo:p.codigo||null,custom:true}));
     renderDashboard(); renderStock(); renderCaja(); renderMargenes();
   } catch(e){ console.error('refrescarDatos:', e); }
 }
@@ -1114,7 +1122,7 @@ function showTab(name, el) {
   if(name==='gastos')    renderGastos();
   if(name==='pedidos')   renderPedidos();
   if(name==='historial') {historialMode='ventas';histPagina=0;renderHistorial();}
-  if(name==='productos') renderListaProductos();
+  if(name==='productos'){ renderListaProductos(); renderEstadoCodigos(); sugerirCodigo(); }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1128,6 +1136,11 @@ function getStockActual(producto){
   const comprado=appData.compras.filter(c=>normalizar(c.producto)===normalizar(producto)).reduce((s,c)=>s+c.cantidad,0);
   const vendido=appData.ventas.filter(v=>normalizar(v.producto)===normalizar(producto)).reduce((s,v)=>s+v.cantidad,0);
   return si+comprado-vendido;
+}
+function codigoDe(nombreProducto){
+  const n = normalizar(nombreProducto);
+  const p = getTodosProductosMerged().find(function(x){ return normalizar(x.nombre)===n; });
+  return p && p.codigo ? p.codigo : null;
 }
 function getTodosProductosMerged(){return[...TODOS_LOS_PRODUCTOS,...(appData.productosCustom||[])];}
 
@@ -1472,7 +1485,7 @@ function renderVentasPendientes(){
       return`<tr>
         <td style="white-space:nowrap">${formatFecha(v.fecha)}</td>
         <td style="max-width:55px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.cliente||'—'}</td>
-        <td style="max-width:75px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v.producto}">${v.producto.length>14?v.producto.slice(0,13)+'…':v.producto}</td>
+        <td style="max-width:75px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${codigoDe(v.producto)?'#'+codigoDe(v.producto)+' - ':''}${v.producto}">${codigoDe(v.producto)?`<span style="font-size:9px;opacity:.55;font-weight:700">${codigoDe(v.producto)}</span> `:''}${v.producto.length>13?v.producto.slice(0,12)+'…':v.producto}</td>
         <td><strong>${formatPeso(resta)}</strong>${parcial?`<br><span style="font-size:9px;color:var(--verde2)">ya cobró ${formatPeso(v.montoCobrado)}</span>`:''}</td>
         <td><button class="btn btn-primary btn-sm" onclick="marcarCobrada('${v.id}')">✓ Cobrar</button></td>
       </tr>`;}).join('')
@@ -1942,16 +1955,79 @@ function actualizarMargenPreview(){
     pre.style.display='flex'; pre.style.background=mg>=20?'var(--verde)':mg>=10?'#b36a00':'var(--naranja)';
   }else{pre.style.display='none';}
 }
+// ---- CODIGOS DE PRODUCTO ----
+const PREFIJO_CAT = {Yerbas:1000, Mates:2000, Bombillas:3000, Canastas:4000};
+
+function codigosUsados(){
+  const usados = new Set();
+  TODOS_LOS_PRODUCTOS.forEach(function(p){ if(p.codigo) usados.add(p.codigo); });
+  (appData.productosCustom||[]).forEach(function(p){ if(p.codigo) usados.add(p.codigo); });
+  return usados;
+}
+
+function siguienteCodigo(cat, usados){
+  const base = PREFIJO_CAT[cat] || 1000;
+  let n = base + 1;
+  while(usados.has(n) && n < base + 999) n++;
+  return n;
+}
+
+function renderEstadoCodigos(){
+  const el = document.getElementById('codigosEstado');
+  if(!el) return;
+  const custom = appData.productosCustom || [];
+  const sin = custom.filter(function(p){ return !p.codigo; });
+  const total = TODOS_LOS_PRODUCTOS.length + custom.length;
+  if(!sin.length){
+    el.innerHTML = 'Todos los productos tienen codigo asignado (<strong>' + total + '</strong> en total).';
+  } else {
+    const porCat = {};
+    sin.forEach(function(p){ porCat[p.categoria] = (porCat[p.categoria]||0) + 1; });
+    const detalle = Object.keys(porCat).map(function(c){ return porCat[c] + ' en ' + c; }).join(', ');
+    el.innerHTML = '<strong style="color:var(--naranja)">' + sin.length + ' producto(s) sin codigo</strong> (' + detalle + ') de ' + total + ' totales.';
+  }
+}
+
+async function asignarCodigosFaltantes(){
+  const btn = event && event.currentTarget;
+  const custom = appData.productosCustom || [];
+  const sin = custom.filter(function(p){ return !p.codigo; });
+
+  if(!sin.length){ toast('Todos los productos ya tienen codigo'); return; }
+  if(!confirm('Se van a asignar codigos a ' + sin.length + ' producto(s).\n\nLos codigos existentes NO se modifican.\n\nContinuar?')) return;
+
+  if(btn){ btn.disabled = true; btn.textContent = 'Asignando...'; }
+
+  const usados = codigosUsados();
+  // Agrupar por categoria y ordenar por fecha de creacion (id)
+  const orden = sin.slice().sort(function(a,b){
+    if(a.categoria !== b.categoria) return a.categoria.localeCompare(b.categoria);
+    return String(a.id).localeCompare(String(b.id));
+  });
+
+  const asignados = [];
+  for(let i=0; i<orden.length; i++){
+    const p = orden[i];
+    const cod = siguienteCodigo(p.categoria, usados);
+    usados.add(cod);
+    p.codigo = cod;
+    await sbUpdate('productos_custom', p.id, {codigo: cod});
+    asignados.push({nombre: p.nombre, codigo: cod, cat: p.categoria});
+  }
+
+  reconstruirSelectores();
+  renderListaProductos();
+  renderEstadoCodigos();
+
+  if(btn){ btn.disabled = false; btn.textContent = 'Asignar codigos faltantes'; }
+
+  const resumen = asignados.slice(0,4).map(function(a){ return '#' + a.codigo + ' ' + a.nombre; }).join(', ');
+  toast(asignados.length + ' codigo(s) asignados: ' + resumen + (asignados.length>4 ? '...' : ''));
+}
+
 function sugerirCodigo(){
   const cat = document.getElementById('prodCategoria').value;
-  const prefijos = {Yerbas:1000, Mates:2000, Bombillas:3000, Canastas:4000};
-  const base = prefijos[cat] || 1000;
-  // Buscar el código más alto ya usado en esa categoría
-  const usados = getTodosProductosMerged()
-    .filter(p=>p.categoria===cat && p.codigo)
-    .map(p=>p.codigo);
-  const siguiente = usados.length > 0 ? Math.max(...usados) + 1 : base + 1;
-  document.getElementById('prodCodigo').value = siguiente;
+  document.getElementById('prodCodigo').value = siguienteCodigo(cat, codigosUsados());
 }
 async function guardarProducto(){
   const nombre=document.getElementById('prodNombre').value.trim(),
@@ -1963,10 +2039,7 @@ async function guardarProducto(){
   if(vta<=0){toast('⚠️ Precio debe ser mayor a 0');return;}
   if(getTodosProductosMerged().some(p=>normalizar(p.nombre)===normalizar(nombre))){toast('⚠️ Ya existe ese producto');return;}
   // Calcular código si no se ingresó
-  const prefijos = {Yerbas:1000, Mates:2000, Bombillas:3000, Canastas:4000};
-  const base = prefijos[categoria] || 1000;
-  const usados = getTodosProductosMerged().filter(p=>p.categoria===categoria&&p.codigo).map(p=>p.codigo);
-  const codigo = codigoInput || (usados.length > 0 ? Math.max(...usados)+1 : base+1);
+  const codigo = codigoInput || siguienteCodigo(categoria, codigosUsados());
   if(!appData.productosCustom)appData.productosCustom=[];
   const id=Date.now().toString();
   appData.productosCustom.push({nombre,categoria,precioVenta:vta,costoBase:cto,codigo,id,custom:true});
@@ -1977,7 +2050,7 @@ async function guardarProducto(){
   document.getElementById('prodCostoBase').value='';
   document.getElementById('prodCodigo').value='';
   document.getElementById('prodMargenPreview').style.display='none';
-  toast(`✅ Producto agregado con código ${codigo}`); renderListaProductos();
+  toast('Producto agregado con codigo ' + codigo); renderListaProductos(); renderEstadoCodigos();
 }
 async function eliminarProductoCustom(id){
   if(!confirm('¿Eliminar este producto?'))return;
