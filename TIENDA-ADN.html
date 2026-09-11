@@ -587,7 +587,7 @@ function setEntrega(tipo){
   }, 120);
 }
 
-async function enviarWhatsApp(){
+function enviarWhatsApp(){
   const nombre = document.getElementById('clienteNombre').value.trim();
   const tel    = document.getElementById('clienteTel').value.trim();
   const notas  = document.getElementById('clienteNotas').value.trim();
@@ -611,19 +611,13 @@ async function enviarWhatsApp(){
     entregaTexto = 'Envio - ' + dir;
   }
 
-  const total = carrito.reduce((s,c)=>s+c.precio*c.qty,0);
+  const total = carrito.reduce(function(s,c){ return s+c.precio*c.qty; },0);
   const pedidoId = Date.now().toString();
-  const items = carrito.map(c=>({
-    nombre:c.nombre, codigo:c.codigo||null,
-    qty:c.qty, precio:c.precio, subtotal:c.precio*c.qty
-  }));
-
-  await fetch(SUPA_URL + '/rest/v1/pedidos',{
-    method:'POST',
-    headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
-    body:JSON.stringify({id:pedidoId,cliente_nombre:nombre,cliente_tel:tel,notas:entregaTexto+(notas?' - '+notas:''),items,total,estado:'pendiente'})
+  const items = carrito.map(function(c){
+    return {nombre:c.nombre, codigo:c.codigo||null, qty:c.qty, precio:c.precio, subtotal:c.precio*c.qty};
   });
 
+  // Armar el mensaje ANTES de cualquier llamada asincronica
   const linea = '--------------------------';
   let msg = '\u{1F9C9} *ADN MATERO* \u{1F9C9}\n\n';
   msg += 'Hola! Soy *' + nombre + '* y quiero hacer un pedido \u{1F60A}\n\n';
@@ -642,12 +636,18 @@ async function enviarWhatsApp(){
   msg += '\n_Pedido #' + pedidoId.slice(-6) + '_\n';
   msg += '\nMuchas gracias! \u{1F91D}';
 
-  window.open('https://wa.me/' + WA_NUMBER + '?text=' + encodeURIComponent(msg), '_blank');
+  const waUrl = 'https://wa.me/' + WA_NUMBER + '?text=' + encodeURIComponent(msg);
 
+  // Guardar el pedido en segundo plano (no bloquea la apertura de WhatsApp)
+  guardarPedidoBG(pedidoId, nombre, tel, entregaTexto, notas, items, total);
+
+  // Abrir WhatsApp inmediatamente, dentro del gesto del usuario
+  abrirWhatsApp(waUrl);
+
+  // Limpiar
   carrito = [];
   tipoEntrega = '';
   actualizarCarritoUI();
-  document.getElementById('carritoDrawer').style.display='none';
   document.getElementById('clienteNombre').value='';
   document.getElementById('clienteTel').value='';
   document.getElementById('clienteNotas').value='';
@@ -655,15 +655,85 @@ async function enviarWhatsApp(){
   document.querySelectorAll('input[name="puntoRetiro"]').forEach(function(r){ r.checked=false; });
   document.getElementById('seccionRetiro').style.display='none';
   document.getElementById('seccionEnvio').style.display='none';
-  // Reserva optimista: descontar del stock local lo que se acaba de pedir
   items.forEach(function(it){
     const k = normalizar(it.nombre);
     if(stockPorProducto[k] !== undefined) stockPorProducto[k] -= it.qty;
   });
   renderProductos();
-  toast('Pedido enviado!');
-  // Traer el stock real del servidor por si hubo otros pedidos
-  setTimeout(refrescarStock, 2000);
+  setTimeout(refrescarStock, 2500);
+}
+
+// Guarda el pedido sin bloquear; reintenta una vez si falla
+function guardarPedidoBG(pedidoId, nombre, tel, entregaTexto, notas, items, total){
+  const body = JSON.stringify({
+    id: pedidoId, cliente_nombre: nombre, cliente_tel: tel,
+    notas: entregaTexto + (notas ? ' - ' + notas : ''),
+    items: items, total: total, estado: 'pendiente'
+  });
+  const opts = {
+    method:'POST',
+    headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,
+             'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
+    body: body,
+    keepalive: true
+  };
+  fetch(SUPA_URL + '/rest/v1/pedidos', opts).catch(function(){
+    setTimeout(function(){ fetch(SUPA_URL + '/rest/v1/pedidos', opts).catch(function(){}); }, 1500);
+  });
+}
+
+// Abre WhatsApp con varios metodos segun el navegador
+function abrirWhatsApp(url){
+  const ua = navigator.userAgent || '';
+  const esIOS = /iPad|iPhone|iPod/.test(ua);
+  const enApp = /FBAN|FBAV|Instagram|Line|Twitter/i.test(ua);
+
+  // En navegadores dentro de apps (Instagram, Facebook) window.open casi siempre falla
+  if(enApp){
+    mostrarFallbackWA(url);
+    setTimeout(function(){ window.location.href = url; }, 100);
+    return;
+  }
+
+  if(esIOS){
+    // En iOS la navegacion directa es mas confiable que window.open
+    window.location.href = url;
+    // Si a los 2 segundos seguimos aca, mostrar el boton manual
+    setTimeout(function(){ mostrarFallbackWA(url); }, 2000);
+    return;
+  }
+
+  const win = window.open(url, '_blank');
+  if(!win || win.closed || typeof win.closed === 'undefined'){
+    // Popup bloqueado: navegar en la misma pestania
+    window.location.href = url;
+    setTimeout(function(){ mostrarFallbackWA(url); }, 2000);
+  } else {
+    document.getElementById('carritoDrawer').style.display='none';
+    toast('Pedido enviado!');
+  }
+}
+
+// Pantalla con boton manual por si el navegador bloquea la apertura
+function mostrarFallbackWA(url){
+  if(document.getElementById('waFallback')) return;
+  const d = document.createElement('div');
+  d.id = 'waFallback';
+  d.style.cssText = 'position:fixed;inset:0;background:rgba(38,70,83,.94);z-index:9999;display:flex;'
+    + 'flex-direction:column;align-items:center;justify-content:center;padding:28px;text-align:center;'
+    + 'color:#fff;font-family:inherit';
+  d.innerHTML =
+      '<div style="font-size:42px;margin-bottom:10px">\u{1F4AC}</div>'
+    + '<div style="font-size:18px;font-weight:700;margin-bottom:8px">Tu pedido esta listo</div>'
+    + '<div style="font-size:13.5px;opacity:.85;margin-bottom:22px;max-width:300px;line-height:1.5">'
+    + 'Toca el boton para abrir WhatsApp y enviarnos el pedido.</div>'
+    + '<a href="' + url + '" target="_blank" rel="noopener" '
+    + 'style="background:#25D366;color:#fff;padding:15px 30px;border-radius:12px;font-size:16px;'
+    + 'font-weight:700;text-decoration:none;display:block;margin-bottom:14px">Abrir WhatsApp</a>'
+    + '<button onclick="document.getElementById(\'waFallback\').remove()" '
+    + 'style="background:none;border:1px solid rgba(255,255,255,.4);color:#fff;padding:9px 20px;'
+    + 'border-radius:10px;font-size:13px;cursor:pointer">Cerrar</button>';
+  document.body.appendChild(d);
 }
 
 // Recalcula stock leyendo ventas y compras, sin recargar todo el catalogo
