@@ -151,6 +151,67 @@ textarea{resize:vertical;min-height:60px;}
     <button class="btn" style="margin-top:6px;background:var(--gris);color:white" onclick="asignarCodigosCatalogo()">🔢 ASIGNAR CÓDIGOS FALTANTES</button>
     <div id="codCatEstado" style="font-size:11.5px;color:var(--gris2);opacity:.8;margin-top:8px;line-height:1.4"></div>
   </div>
+  <!-- PROMOCIONES -->
+  <div class="sec-title">🎁 Promociones</div>
+  <div class="card">
+    <div class="cat-pills" style="margin-bottom:12px">
+      <button class="cat-pill active" id="tabPromoCant" onclick="setTipoPromo('cantidad')">Mismo producto</button>
+      <button class="cat-pill" id="tabPromoCombo" onclick="setTipoPromo('combo')">Combo de productos</button>
+    </div>
+
+    <!-- PROMO POR CANTIDAD -->
+    <div id="formPromoCantidad">
+      <div style="font-size:12.5px;color:var(--gris2);margin-bottom:10px;line-height:1.45">
+        Precio especial al llevar varias unidades del mismo producto. Ej: 2 Baldo por $20.000.
+      </div>
+      <div>
+        <label>Producto</label>
+        <select id="promoProducto" onchange="onPromoProductoChange()">
+          <option value="">— Elegí un producto —</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div><label>Cantidad</label><input type="number" id="promoCantidad" value="2" min="2" oninput="calcPromoPreview()"></div>
+        <div><label>Precio total $</label><input type="number" id="promoPrecio" placeholder="0" oninput="calcPromoPreview()"></div>
+      </div>
+      <div id="promoPreview" style="display:none;border-radius:8px;padding:9px 11px;font-size:12px;margin-bottom:10px"></div>
+      <button class="btn btn-primary" onclick="guardarPromo()">🎁 CREAR PROMOCIÓN</button>
+    </div>
+
+    <!-- COMBO -->
+    <div id="formPromoCombo" style="display:none">
+      <div style="font-size:12.5px;color:var(--gris2);margin-bottom:10px;line-height:1.45">
+        Precio especial al llevar productos distintos juntos. Ej: 1 Canarias + 1 Baldo por $20.000.
+      </div>
+      <div>
+        <label>Nombre del combo</label>
+        <input type="text" id="comboNombre" placeholder="Ej: Combo Clásico">
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Agregar producto</label>
+          <select id="comboProducto"><option value="">— Elegí —</option></select>
+        </div>
+        <div>
+          <label>Cantidad</label>
+          <div style="display:flex;gap:6px">
+            <input type="number" id="comboCantidad" value="1" min="1" style="margin-bottom:0">
+            <button class="btn" style="margin-top:0;width:auto;padding:8px 14px;background:var(--gris);color:white" onclick="agregarItemCombo()">＋</button>
+          </div>
+        </div>
+      </div>
+      <div id="comboItems" style="margin:4px 0 10px"></div>
+      <div>
+        <label>Precio del combo $</label>
+        <input type="number" id="comboPrecio" placeholder="0" oninput="calcComboPreview()">
+      </div>
+      <div id="comboPreview" style="display:none;border-radius:8px;padding:9px 11px;font-size:12px;margin-bottom:10px"></div>
+      <button class="btn btn-primary" onclick="guardarCombo()">🎁 CREAR COMBO</button>
+    </div>
+
+    <div id="listaPromos" style="margin-top:14px"></div>
+  </div>
+
   <div class="sec-title">📦 Productos en Catálogo</div>
   <div class="cat-pills">
     <button class="cat-pill active" onclick="filtrarCat('',this)">Todos</button>
@@ -373,6 +434,262 @@ async function importarProductosBase(){
   console.log(`Importados ${nuevos.length} productos base`);
 }
 
+// ---- PROMOCIONES ----
+let promos = [];
+
+function onPromoProductoChange(){
+  const sel = document.getElementById('promoProducto');
+  const p = catalogo.find(function(x){ return x.id === sel.value; });
+  if(p){
+    const q = parseInt(document.getElementById('promoCantidad').value) || 2;
+    // Sugerir un precio con ~8% de descuento redondeado a 500
+    const sug = Math.round((p.precio * q * 0.92) / 500) * 500;
+    document.getElementById('promoPrecio').value = sug;
+  }
+  calcPromoPreview();
+}
+
+function calcPromoPreview(){
+  const sel = document.getElementById('promoProducto');
+  const prev = document.getElementById('promoPreview');
+  const p = catalogo.find(function(x){ return x.id === sel.value; });
+  const q = parseInt(document.getElementById('promoCantidad').value) || 0;
+  const pp = parseFloat(document.getElementById('promoPrecio').value) || 0;
+  if(!p || q < 2 || pp <= 0){ prev.style.display = 'none'; return; }
+  const normal = p.precio * q;
+  const ahorro = normal - pp;
+  const pct = normal > 0 ? (ahorro / normal * 100) : 0;
+  prev.style.display = 'block';
+  if(ahorro <= 0){
+    prev.style.background = '#fde8e8'; prev.style.color = '#7d0000';
+    prev.innerHTML = 'El precio de promo no puede ser mayor al normal (' + formatPeso(normal) + ').';
+  } else {
+    prev.style.background = '#d1fadf'; prev.style.color = '#155724';
+    prev.innerHTML = q + ' x ' + p.nombre + '<br>Normal: <s>' + formatPeso(normal) + '</s> &nbsp; Promo: <strong>'
+      + formatPeso(pp) + '</strong> &nbsp; Ahorro: <strong>' + formatPeso(ahorro) + ' (' + pct.toFixed(0) + '%)</strong>';
+  }
+}
+
+function poblarSelectorPromo(){
+  const sel = document.getElementById('promoProducto');
+  if(!sel) return;
+  const actual = sel.value;
+  sel.innerHTML = '<option value="">— Elegí un producto —</option>';
+  const cats = ['Yerbas','Mates','Bombillas','Canastas'];
+  const labels = {Yerbas:'🌿 YERBAS', Mates:'🪔 MATES', Bombillas:'💨 BOMBILLAS', Canastas:'🧺 CANASTAS Y ACCESORIOS'};
+  cats.forEach(function(cat){
+    const items = catalogo.filter(function(p){ return p.categoria === cat && p.activo; });
+    if(!items.length) return;
+    const og = document.createElement('optgroup');
+    og.label = labels[cat];
+    items.forEach(function(p){
+      const o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = (p.codigo ? '[' + p.codigo + '] ' : '') + p.nombre + ' - ' + formatPeso(p.precio);
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  });
+  if(actual) sel.value = actual;
+  // Mismo listado para el selector del combo
+  const selC = document.getElementById('comboProducto');
+  if(selC){
+    const act2 = selC.value;
+    selC.innerHTML = sel.innerHTML;
+    selC.value = act2;
+  }
+}
+
+// ---- COMBOS ----
+let comboItemsTmp = [];
+
+function setTipoPromo(t){
+  const esC = t === 'combo';
+  document.getElementById('formPromoCantidad').style.display = esC ? 'none' : 'block';
+  document.getElementById('formPromoCombo').style.display    = esC ? 'block' : 'none';
+  document.getElementById('tabPromoCant').classList.toggle('active', !esC);
+  document.getElementById('tabPromoCombo').classList.toggle('active', esC);
+}
+
+function agregarItemCombo(){
+  const sel = document.getElementById('comboProducto');
+  const p = catalogo.find(function(x){ return x.id === sel.value; });
+  const q = parseInt(document.getElementById('comboCantidad').value) || 1;
+  if(!p){ toast('Elegí un producto'); return; }
+
+  const ex = comboItemsTmp.find(function(i){ return i.producto_id === p.id; });
+  if(ex) ex.cantidad += q;
+  else comboItemsTmp.push({producto_id: p.id, nombre: p.nombre, cantidad: q});
+
+  sel.value = '';
+  document.getElementById('comboCantidad').value = '1';
+  renderComboItems();
+  calcComboPreview();
+}
+
+function quitarItemCombo(idx){
+  comboItemsTmp.splice(idx, 1);
+  renderComboItems();
+  calcComboPreview();
+}
+
+function renderComboItems(){
+  const cont = document.getElementById('comboItems');
+  if(!cont) return;
+  if(!comboItemsTmp.length){ cont.innerHTML = ''; return; }
+  cont.innerHTML = comboItemsTmp.map(function(it, i){
+    const p = catalogo.find(function(x){ return x.id === it.producto_id; });
+    const sub = p ? p.precio * it.cantidad : 0;
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--crema);border-radius:8px;margin-bottom:5px">'
+      + '<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+      + it.cantidad + ' x ' + it.nombre + '</div>'
+      + '<div style="font-size:10.5px;color:var(--gris2);opacity:.75">' + formatPeso(sub) + '</div></div>'
+      + '<button class="edit-btn" onclick="quitarItemCombo(' + i + ')">✕</button></div>';
+  }).join('');
+}
+
+function calcComboPreview(){
+  const prev = document.getElementById('comboPreview');
+  const precio = parseFloat(document.getElementById('comboPrecio').value) || 0;
+  if(comboItemsTmp.length < 2 || precio <= 0){ prev.style.display = 'none'; return; }
+  const normal = comboItemsTmp.reduce(function(s, it){
+    const p = catalogo.find(function(x){ return x.id === it.producto_id; });
+    return s + (p ? p.precio * it.cantidad : 0);
+  }, 0);
+  const ahorro = normal - precio;
+  prev.style.display = 'block';
+  if(ahorro <= 0){
+    prev.style.background = '#fde8e8'; prev.style.color = '#7d0000';
+    prev.innerHTML = 'El precio del combo debe ser menor al normal (' + formatPeso(normal) + ').';
+  } else {
+    prev.style.background = '#d1fadf'; prev.style.color = '#155724';
+    prev.innerHTML = 'Normal: <s>' + formatPeso(normal) + '</s> &nbsp; Combo: <strong>' + formatPeso(precio)
+      + '</strong><br>Ahorro: <strong>' + formatPeso(ahorro) + ' (' + (ahorro/normal*100).toFixed(0) + '%)</strong>';
+  }
+}
+
+async function guardarCombo(){
+  const nombre = document.getElementById('comboNombre').value.trim();
+  const precio = parseFloat(document.getElementById('comboPrecio').value) || 0;
+
+  if(comboItemsTmp.length < 2){ toast('Agregá al menos 2 productos'); return; }
+  if(precio <= 0){ toast('Ingresá el precio del combo'); return; }
+
+  const normal = comboItemsTmp.reduce(function(s, it){
+    const p = catalogo.find(function(x){ return x.id === it.producto_id; });
+    return s + (p ? p.precio * it.cantidad : 0);
+  }, 0);
+  if(precio >= normal){ toast('El precio del combo debe ser menor al normal'); return; }
+
+  const auto = comboItemsTmp.map(function(i){ return i.cantidad + ' ' + i.nombre; }).join(' + ');
+  const id = Date.now().toString();
+  await sbUpsert('promociones', {
+    id: id, nombre: nombre || auto, tipo: 'combo',
+    producto_id: null, cantidad: null, precio_promo: precio,
+    items: comboItemsTmp.map(function(i){ return {producto_id: i.producto_id, nombre: i.nombre, cantidad: i.cantidad}; }),
+    activa: true
+  });
+
+  comboItemsTmp = [];
+  document.getElementById('comboNombre').value = '';
+  document.getElementById('comboPrecio').value = '';
+  document.getElementById('comboPreview').style.display = 'none';
+  renderComboItems();
+  toast('Combo creado');
+  await cargarPromos();
+}
+
+async function cargarPromos(){
+  promos = await sbGet('promociones','order=created_at.desc');
+  renderListaPromos();
+}
+
+function renderListaPromos(){
+  const cont = document.getElementById('listaPromos');
+  if(!cont) return;
+  if(!promos.length){
+    cont.innerHTML = '<div style="text-align:center;padding:16px;color:rgba(38,70,83,.4);font-size:12.5px">Sin promociones cargadas</div>';
+    return;
+  }
+  cont.innerHTML = '<div class="sec-title" style="margin-top:4px;font-size:13px">Promociones cargadas</div>'
+  + promos.map(function(pr){
+    let titulo, normal = 0;
+    if(pr.tipo === 'combo'){
+      const its = pr.items || [];
+      titulo = its.map(function(i){ return i.cantidad + ' x ' + i.nombre; }).join(' + ');
+      normal = its.reduce(function(s,i){
+        const p = catalogo.find(function(x){ return x.id === i.producto_id; });
+        return s + (p ? p.precio * i.cantidad : 0);
+      }, 0);
+    } else {
+      const p = catalogo.find(function(x){ return x.id === pr.producto_id; });
+      titulo = pr.cantidad + ' x ' + (p ? p.nombre : (pr.nombre || 'Producto eliminado'));
+      normal = p ? p.precio * pr.cantidad : 0;
+    }
+    const ahorro = normal - pr.precio_promo;
+    const tag = pr.tipo === 'combo'
+      ? '<span style="background:#e8d5f5;color:#5a0080;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px">COMBO</span>'
+      : '<span style="background:#d4edda;color:#155724;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px">CANTIDAD</span>';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px;background:' + (pr.activa ? '#f4fbf7' : '#f2f2f2')
+      + ';border-radius:9px;margin-bottom:6px;border-left:3px solid ' + (pr.activa ? 'var(--verde)' : '#bbb') + '">'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="margin-bottom:2px">' + tag + (pr.tipo==='combo' && pr.nombre ? ' <strong style="font-size:11.5px">'+pr.nombre+'</strong>' : '') + '</div>'
+      + '<div style="font-size:12px;font-weight:600;line-height:1.35">' + titulo + '</div>'
+      + '<div style="font-size:11px;color:var(--gris2);opacity:.85;margin-top:2px">'
+      + (normal ? '<s>' + formatPeso(normal) + '</s> → ' : '')
+      + '<strong style="color:var(--verde)">' + formatPeso(pr.precio_promo) + '</strong>'
+      + (ahorro > 0 ? ' · ahorra ' + formatPeso(ahorro) : '') + '</div></div>'
+      + '<button class="toggle-btn ' + (pr.activa ? 'toggle-activo' : 'toggle-inactivo') + '" '
+      + 'onclick="togglePromo(\'' + pr.id + '\',' + pr.activa + ')">' + (pr.activa ? '✓' : '✗') + '</button>'
+      + '<button class="edit-btn" onclick="eliminarPromo(\'' + pr.id + '\')">🗑</button>'
+      + '</div>';
+  }).join('');
+}
+
+async function guardarPromo(){
+  const sel = document.getElementById('promoProducto');
+  const p = catalogo.find(function(x){ return x.id === sel.value; });
+  const cantidad = parseInt(document.getElementById('promoCantidad').value) || 0;
+  const precio = parseFloat(document.getElementById('promoPrecio').value) || 0;
+
+  if(!p){ toast('Elegí un producto'); return; }
+  if(cantidad < 2){ toast('La cantidad debe ser 2 o más'); return; }
+  if(precio <= 0){ toast('Ingresá el precio de la promo'); return; }
+  if(precio >= p.precio * cantidad){ toast('El precio de promo debe ser menor al normal'); return; }
+
+  const yaExiste = promos.find(function(pr){ return pr.producto_id === p.id && pr.cantidad === cantidad; });
+  if(yaExiste && !confirm('Ya existe una promo de ' + cantidad + ' x ' + p.nombre + '.\n\n¿Reemplazarla?')) return;
+
+  const id = yaExiste ? yaExiste.id : Date.now().toString();
+  await sbUpsert('promociones', {
+    id: id, nombre: cantidad + ' x ' + p.nombre, tipo: 'cantidad',
+    producto_id: p.id, cantidad: cantidad, precio_promo: precio, activa: true
+  });
+
+  document.getElementById('promoProducto').value = '';
+  document.getElementById('promoCantidad').value = '2';
+  document.getElementById('promoPrecio').value = '';
+  document.getElementById('promoPreview').style.display = 'none';
+  toast('Promoción creada');
+  await cargarPromos();
+}
+
+async function togglePromo(id, activa){
+  await sbUpdate('promociones', id, {activa: !activa});
+  const pr = promos.find(function(x){ return x.id === id; });
+  if(pr) pr.activa = !activa;
+  renderListaPromos();
+  toast(activa ? 'Promoción pausada' : 'Promoción activada');
+}
+
+async function eliminarPromo(id){
+  if(!confirm('¿Eliminar esta promoción?')) return;
+  await sbDelete('promociones', id);
+  promos = promos.filter(function(x){ return x.id !== id; });
+  renderListaPromos();
+  toast('Promoción eliminada');
+}
+
 async function cargarCatalogo(){
   document.getElementById('listaCatalogo').innerHTML='<div class="loading">Cargando...</div>';
   const [prods,fotosList]=await Promise.all([
@@ -387,6 +704,8 @@ async function cargarCatalogo(){
   });
   renderLista();
   renderEstadoCodCat();
+  poblarSelectorPromo();
+  await cargarPromos();
 }
 
 function filtrarCat(cat,el){

@@ -71,6 +71,7 @@ body{background:#f0ece1;font-family:'Segoe UI',system-ui,sans-serif;color:var(--
 .prod-add:disabled{background:#b0b0b0;cursor:not-allowed;}
 .prod-img{position:relative;}
 .badge-agotado{position:absolute;top:8px;left:8px;background:rgba(38,70,83,.88);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;letter-spacing:.4px;text-transform:uppercase;}
+.badge-promo{position:absolute;top:8px;right:8px;background:#E76F51;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;letter-spacing:.3px;box-shadow:0 2px 6px rgba(231,111,81,.4);}
 
 /* EMPTY */
 .empty{text-align:center;padding:48px 24px;color:rgba(38,70,83,.4);}
@@ -312,12 +313,14 @@ async function cargarCatalogo(){
       </div>
     </div>`).join('');
 
-  const [prods, fotosList, ventas, compras] = await Promise.all([
+  const [prods, fotosList, ventas, compras, promosList] = await Promise.all([
     sbGet('catalogo','activo=eq.true&order=categoria.asc,orden.asc,nombre.asc'),
     sbGet('catalogo_fotos','order=producto_id.asc,orden.asc'),
     sbGet('ventas','select=producto,cantidad&limit=5000'),
-    sbGet('compras','select=producto,cantidad&limit=5000')
+    sbGet('compras','select=producto,cantidad&limit=5000'),
+    sbGet('promociones','activa=eq.true')
   ]);
+  promos = promosList || [];
   catalogo = prods;
   fotos = {};
   fotosList.forEach(f=>{
@@ -336,6 +339,119 @@ async function cargarCatalogo(){
   });
 
   renderProductos();
+}
+
+// ── PROMOCIONES ─────────────────────────────────────────────
+let promos = [];
+let _calcCache = null;
+
+function invalidarCalc(){ _calcCache = null; }
+
+// Promo de cantidad para un producto (la de menor cantidad, para mostrar el gancho)
+function promoDisponible(productoId){
+  const ps = promos.filter(function(p){ return p.tipo !== 'combo' && p.producto_id === productoId; });
+  if(!ps.length) return null;
+  ps.sort(function(a,b){ return a.cantidad - b.cantidad; });
+  return ps[0];
+}
+
+// Combos donde participa este producto
+function combosDe(productoId){
+  return promos.filter(function(p){
+    return p.tipo === 'combo' && (p.items||[]).some(function(i){ return i.producto_id === productoId; });
+  });
+}
+
+// Cuantas veces entra un combo en las cantidades disponibles
+function vecesCombo(combo, restante){
+  let veces = Infinity;
+  const its = combo.items || [];
+  if(!its.length) return 0;
+  for(let i=0;i<its.length;i++){
+    const disp = restante[its[i].producto_id] || 0;
+    veces = Math.min(veces, Math.floor(disp / its[i].cantidad));
+    if(veces === 0) return 0;
+  }
+  return veces === Infinity ? 0 : veces;
+}
+
+function precioListaDe(productoId){
+  const c = carrito.find(function(x){ return x.id === productoId; });
+  if(c) return c.precio;
+  const p = catalogo.find(function(x){ return x.id === productoId; });
+  return p ? p.precio : 0;
+}
+
+// Motor: aplica combos primero (mayor ahorro), luego promos de cantidad, luego precio normal
+function calcularCarrito(){
+  if(_calcCache) return _calcCache;
+
+  const restante = {};
+  carrito.forEach(function(c){ restante[c.id] = c.qty; });
+
+  const combosAplicados = [];
+  let total = 0;
+
+  // 1) Combos, priorizando el de mayor ahorro por aplicacion
+  const combos = promos.filter(function(p){ return p.tipo === 'combo' && (p.items||[]).length; });
+  const conAhorro = combos.map(function(cb){
+    const normal = (cb.items||[]).reduce(function(s,i){ return s + precioListaDe(i.producto_id) * i.cantidad; }, 0);
+    return {combo: cb, ahorroUnit: normal - cb.precio_promo, normal: normal};
+  }).filter(function(x){ return x.ahorroUnit > 0; });
+  conAhorro.sort(function(a,b){ return b.ahorroUnit - a.ahorroUnit; });
+
+  conAhorro.forEach(function(x){
+    const veces = vecesCombo(x.combo, restante);
+    if(veces > 0){
+      (x.combo.items||[]).forEach(function(i){ restante[i.producto_id] -= i.cantidad * veces; });
+      total += x.combo.precio_promo * veces;
+      combosAplicados.push({combo: x.combo, veces: veces, ahorro: x.ahorroUnit * veces});
+    }
+  });
+
+  // 2) Promos de cantidad + resto a precio normal
+  const lineas = {};
+  carrito.forEach(function(c){
+    const q = restante[c.id] || 0;
+    const enCombo = c.qty - q;
+    let subtotal = 0, packs = 0, promoUsada = null;
+
+    if(q > 0){
+      const aplic = promos.filter(function(p){
+        return p.tipo !== 'combo' && p.producto_id === c.id && q >= p.cantidad;
+      });
+      if(aplic.length){
+        aplic.sort(function(a,b){ return b.cantidad - a.cantidad; });
+        promoUsada = aplic[0];
+        packs = Math.floor(q / promoUsada.cantidad);
+        const sueltas = q % promoUsada.cantidad;
+        subtotal = packs * promoUsada.precio_promo + sueltas * c.precio;
+      } else {
+        subtotal = q * c.precio;
+      }
+    }
+    total += subtotal;
+    lineas[c.id] = {
+      enCombo: enCombo, restoQty: q, subtotal: subtotal,
+      promo: promoUsada, packs: packs,
+      normal: c.precio * c.qty
+    };
+  });
+
+  const normalTotal = carrito.reduce(function(s,c){ return s + c.precio * c.qty; }, 0);
+  _calcCache = {total: total, ahorro: normalTotal - total, lineas: lineas, combos: combosAplicados};
+  return _calcCache;
+}
+
+function totalCarrito(){ return calcularCarrito().total; }
+function ahorroCarrito(){ return calcularCarrito().ahorro; }
+
+// Detalle de una linea del carrito
+function calcularLinea(item){
+  const r = calcularCarrito();
+  const l = r.lineas[item.id];
+  if(!l) return {subtotal: item.precio*item.qty, promo: null, packs: 0, enCombo: 0, restoQty: item.qty};
+  return l;
 }
 
 // ── STOCK ─────────────────────────────────────────
@@ -418,6 +534,8 @@ function renderProductos(){
         ? `<img src="${foto}" alt="${p.nombre}" loading="lazy" decoding="async" onload="this.style.opacity=1" style="opacity:0;transition:opacity .3s">`
         : '🌿'}
         ${agotado?'<div class="badge-agotado">Sin stock</div>':''}
+        ${(!agotado && promoDisponible(p.id))?`<div class="badge-promo">${promoDisponible(p.id).cantidad}x ${formatPeso(promoDisponible(p.id).precio_promo)}</div>`
+          :((!agotado && combosDe(p.id).length)?`<div class="badge-promo" style="background:#8B5CF6;box-shadow:0 2px 6px rgba(139,92,246,.4)">EN COMBO</div>`:'')}
       </div>
       <div class="prod-info">
         ${p.codigo?`<div class="prod-cod">#${p.codigo}</div>`:''}
@@ -448,6 +566,35 @@ function abrirProducto(id){
   document.getElementById('modalNombre').textContent = prodActual.nombre;
   document.getElementById('modalDesc').textContent = prodActual.descripcion || '';
   document.getElementById('modalPrecio').textContent = formatPeso(prodActual.precio);
+  // Aviso de promo
+  const pr = promoDisponible(prodActual.id);
+  let avisoPromo = document.getElementById('modalPromo');
+  if(!avisoPromo){
+    avisoPromo = document.createElement('div');
+    avisoPromo.id = 'modalPromo';
+    avisoPromo.style.cssText = 'background:#fff3e6;border:1.5px solid #E76F51;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#8b3a00;margin-bottom:14px;line-height:1.45';
+    document.getElementById('modalPrecio').after(avisoPromo);
+  }
+  const cbs = combosDe(prodActual.id);
+  if(pr || cbs.length){
+    avisoPromo.style.display = 'block';
+    let txt = '';
+    if(pr){
+      const ahorro = prodActual.precio * pr.cantidad - pr.precio_promo;
+      txt += '🎁 <strong>Promo:</strong> llevá ' + pr.cantidad + ' por <strong>' + formatPeso(pr.precio_promo)
+           + '</strong> y ahorrás ' + formatPeso(ahorro);
+    }
+    if(cbs.length){
+      if(txt) txt += '<div style="height:6px"></div>';
+      txt += cbs.slice(0,2).map(function(cb){
+        const det = (cb.items||[]).map(function(i){ return i.cantidad + ' ' + i.nombre; }).join(' + ');
+        return '🎁 <strong>' + (cb.nombre || 'Combo') + ':</strong> ' + det + ' por <strong>' + formatPeso(cb.precio_promo) + '</strong>';
+      }).join('<div style="height:4px"></div>');
+    }
+    avisoPromo.innerHTML = txt;
+  } else {
+    avisoPromo.style.display = 'none';
+  }
   document.getElementById('modalQty').textContent = '1';
   // Bloquear boton si no hay stock
   const disp = stockDisponible(prodActual);
@@ -492,6 +639,7 @@ function agregarRapido(id){
 }
 
 function addToCart(prod, qty){
+  invalidarCalc();
   const disp = stockDisponible(prod);
   if(disp !== null && disp < qty){
     if(disp <= 0){ toast('Sin stock disponible'); return; }
@@ -513,29 +661,86 @@ function renderCarrito(){
   if(!carrito.length){
     items.innerHTML = '<div class="carrito-empty"><span style="font-size:36px;display:block;margin-bottom:8px">🛒</span>El carrito está vacío</div>';
     document.getElementById('carritoTotal').textContent = '$0';
+    const ea = document.getElementById('carritoAhorro');
+    if(ea) ea.style.display = 'none';
     return;
   }
-  items.innerHTML = carrito.map(c=>{
-    const foto = fotos[c.id]?.[0];
-    return `<div class="carrito-item">
-      <div class="ci-img">${foto?`<img src="${foto}" alt="${c.nombre}">`:'🌿'}</div>
-      <div class="ci-info">
-        <div class="ci-nombre">${c.nombre}</div>
-        <div class="ci-precio">${formatPeso(c.precio)} c/u · <strong>${formatPeso(c.precio*c.qty)}</strong></div>
-      </div>
-      <div class="ci-qty">
-        <button class="ci-qty-btn" onclick="cambiarQtyCarrito('${c.id}',-1)">−</button>
-        <span class="ci-qty-val">${c.qty}</span>
-        <button class="ci-qty-btn" onclick="cambiarQtyCarrito('${c.id}',1)">+</button>
-      </div>
-      <button class="ci-delete" onclick="quitarDelCarrito('${c.id}')">🗑</button>
-    </div>`;
+
+  invalidarCalc();
+  const r = calcularCarrito();
+
+  // Combos aplicados arriba de todo
+  let html = '';
+  if(r.combos.length){
+    html += r.combos.map(function(ca){
+      const det = (ca.combo.items||[]).map(function(i){ return i.cantidad + ' ' + i.nombre; }).join(' + ');
+      return '<div style="background:#fff3e6;border:1.5px solid #E76F51;border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+        + '<div style="font-size:12.5px;font-weight:700;color:#8b3a00">🎁 ' + (ca.veces > 1 ? ca.veces + 'x ' : '')
+        + (ca.combo.nombre || 'Combo') + '</div>'
+        + '<div style="font-size:11px;color:#8b3a00;opacity:.85;margin-top:2px">' + det + '</div>'
+        + '<div style="font-size:11.5px;color:#8b3a00;margin-top:4px"><strong>' + formatPeso(ca.combo.precio_promo * ca.veces)
+        + '</strong> · ahorrás ' + formatPeso(ca.ahorro) + '</div></div>';
+    }).join('');
+  }
+
+  html += carrito.map(function(c){
+    const foto = fotos[c.id] ? fotos[c.id][0] : null;
+    const l = r.lineas[c.id];
+    const prDisp = promoDisponible(c.id);
+    let detalle = '';
+
+    if(l.enCombo > 0){
+      detalle += '<div style="font-size:10px;color:#E76F51;font-weight:700">🎁 ' + l.enCombo + ' en combo</div>';
+    }
+    if(l.restoQty > 0){
+      if(l.promo){
+        detalle += '<div class="ci-precio"><s style="opacity:.6">' + formatPeso(c.precio * l.restoQty) + '</s> <strong style="color:var(--verde)">'
+                 + formatPeso(l.subtotal) + '</strong></div>'
+                 + '<div style="font-size:10px;color:#E76F51;font-weight:700">' + l.packs + 'x promo ' + l.promo.cantidad + '</div>';
+      } else {
+        detalle += '<div class="ci-precio">' + formatPeso(c.precio) + ' c/u · <strong>' + formatPeso(l.subtotal) + '</strong></div>';
+        if(prDisp && l.restoQty < prDisp.cantidad){
+          detalle += '<div style="font-size:10px;color:#E76F51">Sumá ' + (prDisp.cantidad - l.restoQty)
+                   + ' más y pagás ' + formatPeso(prDisp.precio_promo) + ' por ' + prDisp.cantidad + '</div>';
+        }
+      }
+    } else if(l.enCombo > 0){
+      detalle += '<div class="ci-precio" style="opacity:.65">Incluido en el combo</div>';
+    }
+
+    return '<div class="carrito-item">'
+      + '<div class="ci-img">' + (foto ? '<img src="' + foto + '" alt="' + c.nombre + '">' : '🌿') + '</div>'
+      + '<div class="ci-info"><div class="ci-nombre">' + c.nombre + '</div>' + detalle + '</div>'
+      + '<div class="ci-qty">'
+      + '<button class="ci-qty-btn" onclick="cambiarQtyCarrito(\'' + c.id + '\',-1)">−</button>'
+      + '<span class="ci-qty-val">' + c.qty + '</span>'
+      + '<button class="ci-qty-btn" onclick="cambiarQtyCarrito(\'' + c.id + '\',1)">+</button>'
+      + '</div>'
+      + '<button class="ci-delete" onclick="quitarDelCarrito(\'' + c.id + '\')">🗑</button>'
+      + '</div>';
   }).join('');
-  const total = carrito.reduce((s,c)=>s+c.precio*c.qty,0);
-  document.getElementById('carritoTotal').textContent = formatPeso(total);
+
+  items.innerHTML = html;
+  document.getElementById('carritoTotal').textContent = formatPeso(r.total);
+
+  let elAhorro = document.getElementById('carritoAhorro');
+  if(!elAhorro){
+    elAhorro = document.createElement('div');
+    elAhorro.id = 'carritoAhorro';
+    elAhorro.style.cssText = 'display:flex;justify-content:space-between;font-size:12.5px;font-weight:700;color:#E76F51;margin-bottom:6px';
+    const cont = document.querySelector('.carrito-total');
+    if(cont) cont.parentNode.insertBefore(elAhorro, cont);
+  }
+  if(r.ahorro > 0){
+    elAhorro.style.display = 'flex';
+    elAhorro.innerHTML = '<span>🎁 Ahorro por promos</span><span>-' + formatPeso(r.ahorro) + '</span>';
+  } else {
+    elAhorro.style.display = 'none';
+  }
 }
 
 function cambiarQtyCarrito(id, dir){
+  invalidarCalc();
   const item = carrito.find(c=>c.id===id);
   if(!item) return;
   if(dir > 0){
@@ -551,6 +756,7 @@ function cambiarQtyCarrito(id, dir){
 }
 
 function quitarDelCarrito(id){
+  invalidarCalc();
   carrito = carrito.filter(c=>c.id!==id);
   actualizarCarritoUI(); renderCarrito(); renderProductos();
 }
@@ -611,10 +817,31 @@ function enviarWhatsApp(){
     entregaTexto = 'Envio - ' + dir;
   }
 
-  const total = carrito.reduce(function(s,c){ return s+c.precio*c.qty; },0);
+  invalidarCalc();
+  const total = totalCarrito();
+  const ahorroTotal = ahorroCarrito();
   const pedidoId = Date.now().toString();
+  const calcPed = calcularCarrito();
+  // Repartir el precio de los combos entre sus productos, proporcional al precio de lista
+  const extraPorProd = {};
+  calcPed.combos.forEach(function(ca){
+    const its = ca.combo.items || [];
+    const normal = its.reduce(function(s,i){ return s + precioListaDe(i.producto_id) * i.cantidad; }, 0);
+    its.forEach(function(i){
+      const parte = normal > 0 ? (precioListaDe(i.producto_id) * i.cantidad / normal) : (1/its.length);
+      extraPorProd[i.producto_id] = (extraPorProd[i.producto_id] || 0) + ca.combo.precio_promo * ca.veces * parte;
+    });
+  });
   const items = carrito.map(function(c){
-    return {nombre:c.nombre, codigo:c.codigo||null, qty:c.qty, precio:c.precio, subtotal:c.precio*c.qty};
+    const l = calcPed.lineas[c.id] || {subtotal: c.precio*c.qty, promo: null};
+    const sub = Math.round(l.subtotal + (extraPorProd[c.id] || 0));
+    return {
+      nombre: c.nombre, codigo: c.codigo || null, qty: c.qty,
+      precio: Math.round(sub / c.qty),
+      subtotal: sub,
+      precio_lista: c.precio,
+      promo: l.promo ? (l.promo.cantidad + 'x' + l.promo.precio_promo) : (l.enCombo > 0 ? 'combo' : null)
+    };
   });
 
   // Armar el mensaje ANTES de cualquier llamada asincronica
@@ -623,11 +850,33 @@ function enviarWhatsApp(){
   msg += 'Hola! Soy *' + nombre + '* y quiero hacer un pedido \u{1F60A}\n\n';
   msg += linea + '\n';
   msg += '\u{1F6D2} *MI PEDIDO*\n\n';
-  carrito.forEach(function(c,i){
-    msg += (i+1) + '. ' + c.nombre + '\n';
-    msg += '     ' + c.qty + ' x ' + formatPeso(c.precio) + ' = *' + formatPeso(c.precio*c.qty) + '*\n\n';
+  const calc = calcularCarrito();
+  let nro = 0;
+  // Combos primero
+  calc.combos.forEach(function(ca){
+    nro++;
+    const det = (ca.combo.items||[]).map(function(i){ return i.cantidad + ' ' + i.nombre; }).join(' + ');
+    msg += nro + '. \u{1F381} ' + (ca.veces > 1 ? ca.veces + 'x ' : '') + (ca.combo.nombre || 'COMBO') + '\n';
+    msg += '     ' + det + '\n';
+    msg += '     *' + formatPeso(ca.combo.precio_promo * ca.veces) + '*\n\n';
+  });
+  // Resto de productos
+  carrito.forEach(function(c){
+    const l = calc.lineas[c.id];
+    if(!l || l.restoQty <= 0) return;
+    nro++;
+    msg += nro + '. ' + c.nombre + '\n';
+    if(l.promo){
+      msg += '     ' + l.restoQty + ' u - PROMO ' + l.promo.cantidad + 'x' + formatPeso(l.promo.precio_promo) + '\n';
+      msg += '     *' + formatPeso(l.subtotal) + '*\n\n';
+    } else {
+      msg += '     ' + l.restoQty + ' x ' + formatPeso(c.precio) + ' = *' + formatPeso(l.subtotal) + '*\n\n';
+    }
   });
   msg += linea + '\n';
+  if(ahorroTotal > 0){
+    msg += '\u{1F381} *Ahorro por promos: ' + formatPeso(ahorroTotal) + '*\n';
+  }
   msg += '\u{1F4B5} *TOTAL: ' + formatPeso(total) + '*\n';
   msg += linea + '\n\n';
   msg += entregaInfo + '\n\n';
@@ -739,10 +988,12 @@ function mostrarFallbackWA(url){
 // Recalcula stock leyendo ventas y compras, sin recargar todo el catalogo
 async function refrescarStock(){
   try{
-    const [ventas, compras] = await Promise.all([
+    const [ventas, compras, promosList] = await Promise.all([
       sbGet('ventas','select=producto,cantidad&limit=5000'),
-      sbGet('compras','select=producto,cantidad&limit=5000')
+      sbGet('compras','select=producto,cantidad&limit=5000'),
+      sbGet('promociones','activa=eq.true')
     ]);
+    if(promosList) promos = promosList;
     if(ventas.length || compras.length){
       calcularStock(ventas, compras);
       renderProductos();
