@@ -1298,11 +1298,25 @@ function existeUbicacion(id){
   return !!id && (appData.ubicaciones||[]).some(function(u){ return u.id === id; });
 }
 
+// Resuelve un id de ubicacion que ya no existe hacia la ubicacion por defecto
+function resolverUbic(id){
+  if(!id) { const d = ubicacionDefault(); return d ? d.id : null; }
+  if(existeUbicacion(id)) return id;
+  const d = ubicacionDefault();
+  return d ? d.id : null;   // la ubicacion fue eliminada: cae en la principal
+}
+
 // Stock de un producto en una ubicacion REAL
 function stockEnUbicacionReal(producto, ubicId){
   const np = normalizar(producto);
-  let s = 0;
-  const misma = function(r){ return r.ubicacionId === ubicId; };
+  const def = ubicacionDefault();
+  const esDef = def && ubicId === def.id;
+
+  // El stock inicial historico vive en la ubicacion por defecto
+  let s = esDef ? (STOCK_INICIAL[producto] || 0) : 0;
+
+  // Registros sin ubicacion (o de una ubicacion eliminada) se imputan a la principal
+  const misma = function(r){ return resolverUbic(r.ubicacionId) === ubicId; };
 
   s += appData.compras.filter(function(c){ return normalizar(c.producto)===np && misma(c); })
                       .reduce(function(a,c){ return a + (parseFloat(c.cantidad)||0); }, 0);
@@ -1311,15 +1325,15 @@ function stockEnUbicacionReal(producto, ubicId){
   s -= (appData.consumos||[]).filter(function(c){ return normalizar(c.producto)===np && misma(c); })
                      .reduce(function(a,c){ return a + (parseFloat(c.cantidad)||0); }, 0);
 
-  // Solo cuentan las transferencias cuyas dos puntas existen o vienen de "sin asignar"
+  // Transferencias: si una punta fue eliminada, se reapunta a la principal
   (appData.movimientos||[]).forEach(function(m){
     if(normalizar(m.producto) !== np) return;
     const q = parseFloat(m.cantidad)||0;
-    const origenOk  = m.origenId  === UBIC_SIN_ASIGNAR || existeUbicacion(m.origenId);
-    const destinoOk = m.destinoId === UBIC_SIN_ASIGNAR || existeUbicacion(m.destinoId);
-    if(!origenOk || !destinoOk) return;   // movimiento huerfano: se ignora
-    if(m.destinoId === ubicId) s += q;
-    if(m.origenId  === ubicId) s -= q;
+    const o = resolverUbic(m.origenId);
+    const d = resolverUbic(m.destinoId);
+    if(o === d) return;              // quedo de la principal a si misma: se anula
+    if(d === ubicId) s += q;
+    if(o === ubicId) s -= q;
   });
 
   return s;
@@ -2687,6 +2701,8 @@ async function eliminarUbicacion(id){
 function renderBloqueSinAsignar(){
   const bloque = document.getElementById('bloqueSinAsignar');
   if(!bloque) return;
+  // Con el histórico imputado a la principal no queda stock sin asignar
+  if(Math.abs(unidadesSinAsignar()) < 0.001){ bloque.style.display = 'none'; return; }
   const n = contarSinAsignar();
   const ubics = (appData.ubicaciones||[]).filter(function(u){ return u.activa !== false; });
 
@@ -2705,8 +2721,8 @@ function renderBloqueSinAsignar(){
   }
   txt += 'Quedan <strong>' + un + ' unidades</strong> figurando como <strong>Sin asignar</strong>.';
   if(n.huerfanos){
-    txt += '<br><br>También hay <strong>' + n.huerfanos + ' movimiento(s)</strong> que apuntan a una ubicación eliminada. '
-         + 'No se cuentan en el stock. Podés borrarlos desde Stock → Últimos movimientos.';
+    txt += '<br><br>Hay <strong>' + n.huerfanos + ' movimiento(s)</strong> que apuntan a una ubicación eliminada. '
+         + 'Se imputan a la ubicación principal.';
   }
   txt += '<br><br>Elegí a qué ubicación imputar todo.';
   document.getElementById('textoSinAsignar').innerHTML = txt;
@@ -2836,8 +2852,8 @@ function renderMovimientos(){
     return;
   }
   cont.innerHTML = movs.map(function(m){
-    const oOk = m.origenId  === UBIC_SIN_ASIGNAR || existeUbicacion(m.origenId);
-    const dOk = m.destinoId === UBIC_SIN_ASIGNAR || existeUbicacion(m.destinoId);
+    const oOk = !m.origenId  || m.origenId  === UBIC_SIN_ASIGNAR || existeUbicacion(m.origenId);
+    const dOk = !m.destinoId || m.destinoId === UBIC_SIN_ASIGNAR || existeUbicacion(m.destinoId);
     const huerfano = !oOk || !dOk;
     return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:'
       + (huerfano ? '#fff3cd' : 'white') + ';border-radius:8px;margin-bottom:5px;box-shadow:0 1px 3px var(--sombra)">'
@@ -2845,10 +2861,9 @@ function renderMovimientos(){
       + '<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
       + m.cantidad + ' x ' + m.producto + '</div>'
       + '<div style="font-size:10.5px;color:' + (huerfano ? '#856404' : 'var(--gris2)') + ';opacity:.85">'
-      + (oOk ? nombreUbicacion(m.origenId) : '<s>ubicación eliminada</s>')
-      + ' → <strong>' + (dOk ? nombreUbicacion(m.destinoId) : '<s>ubicación eliminada</s>') + '</strong>'
-      + ' · ' + formatFecha(m.fecha) + (m.notas ? ' · ' + m.notas : '')
-      + (huerfano ? ' · <strong>no se cuenta</strong>' : '') + '</div></div>'
+      + (oOk ? nombreUbicacion(m.origenId) : nombreUbicacion(resolverUbic(m.origenId)) + ' <s style="opacity:.6">(ubic. eliminada)</s>')
+      + ' → <strong>' + (dOk ? nombreUbicacion(m.destinoId) : nombreUbicacion(resolverUbic(m.destinoId)) + ' <s style="opacity:.6">(ubic. eliminada)</s>') + '</strong>'
+      + ' · ' + formatFecha(m.fecha) + (m.notas ? ' · ' + m.notas : '') + '</div></div>'
       + '<button class="btn-icon" onclick="eliminarMovimiento(\'' + m.id + '\')" title="Deshacer">↩</button>'
       + '</div>';
   }).join('');
