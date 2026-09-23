@@ -634,6 +634,16 @@ textarea{resize:vertical;min-height:50px;}
         <button class="btn btn-primary" style="margin-top:0" onclick="agregarUbicacion()">＋ Agregar</button>
       </div>
     </div>
+
+    <div id="bloqueSinAsignar" style="display:none;background:#fff3cd;border-radius:9px;padding:11px;margin-top:10px">
+      <div style="font-size:12px;color:#856404;line-height:1.45;margin-bottom:9px" id="textoSinAsignar"></div>
+      <div class="form-row" style="margin-bottom:0">
+        <div><label style="color:#856404">Imputar todo a</label><select id="selDestinoHistorico"></select></div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="btn" style="margin-top:0;background:#856404;color:white" onclick="imputarHistorico()">Asignar</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="config-section">
@@ -1219,6 +1229,7 @@ function renderAll(){
   poblarSelectoresUbicacion();
   renderListaUbicaciones();
   renderListaDuenos();
+  renderBloqueSinAsignar();
   poblarSelectores();
   poblarSelectoresConCustom();
   renderDashboard();
@@ -1246,7 +1257,7 @@ function showTab(name, el) {
   if(name==='pedidos')   renderPedidos();
   if(name==='historial') {historialMode='ventas';histPagina=0;renderHistorial();}
   if(name==='productos'){ renderListaProductos(); renderEstadoCodigos(); sugerirCodigo(); }
-  if(name==='config')    { renderListaUbicaciones(); renderListaDuenos(); }
+  if(name==='config')    { renderListaUbicaciones(); renderListaDuenos(); renderBloqueSinAsignar(); }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1271,34 +1282,42 @@ function ubicacionDefault(){
 }
 
 function nombreUbicacion(id){
-  if(!id) { const d = ubicacionDefault(); return d ? d.nombre : 'Sin ubicacion'; }
+  if(!id || id === UBIC_SIN_ASIGNAR) return 'Sin asignar';
   const u = (appData.ubicaciones||[]).find(function(x){ return x.id === id; });
   return u ? u.nombre : 'Sin ubicacion';
 }
 
-// Stock de un producto en una ubicacion puntual
-function getStockEnUbicacion(producto, ubicId){
+// Id de la pseudo-ubicacion para lo que todavia no esta imputado
+const UBIC_SIN_ASIGNAR = '__sin_asignar__';
+
+function ubicacionesActivas(){
+  return (appData.ubicaciones||[]).filter(function(u){ return u.activa !== false; });
+}
+
+function existeUbicacion(id){
+  return !!id && (appData.ubicaciones||[]).some(function(u){ return u.id === id; });
+}
+
+// Stock de un producto en una ubicacion REAL
+function stockEnUbicacionReal(producto, ubicId){
   const np = normalizar(producto);
-  const def = ubicacionDefault();
-  const esDef = def && ubicId === def.id;
+  let s = 0;
+  const misma = function(r){ return r.ubicacionId === ubicId; };
 
-  // El stock inicial historico se considera en la ubicacion por defecto
-  let s = esDef ? (STOCK_INICIAL[producto] || 0) : 0;
-
-  // Registros sin ubicacion se imputan a la ubicacion por defecto
-  const mismaUbic = function(r){ return (r.ubicacionId || (def ? def.id : null)) === ubicId; };
-
-  s += appData.compras.filter(function(c){ return normalizar(c.producto)===np && mismaUbic(c); })
+  s += appData.compras.filter(function(c){ return normalizar(c.producto)===np && misma(c); })
                       .reduce(function(a,c){ return a + (parseFloat(c.cantidad)||0); }, 0);
-  s -= appData.ventas.filter(function(v){ return normalizar(v.producto)===np && mismaUbic(v); })
+  s -= appData.ventas.filter(function(v){ return normalizar(v.producto)===np && misma(v); })
                      .reduce(function(a,v){ return a + (parseFloat(v.cantidad)||0); }, 0);
-  s -= (appData.consumos||[]).filter(function(c){ return normalizar(c.producto)===np && mismaUbic(c); })
+  s -= (appData.consumos||[]).filter(function(c){ return normalizar(c.producto)===np && misma(c); })
                      .reduce(function(a,c){ return a + (parseFloat(c.cantidad)||0); }, 0);
 
-  // Transferencias
+  // Solo cuentan las transferencias cuyas dos puntas existen o vienen de "sin asignar"
   (appData.movimientos||[]).forEach(function(m){
     if(normalizar(m.producto) !== np) return;
     const q = parseFloat(m.cantidad)||0;
+    const origenOk  = m.origenId  === UBIC_SIN_ASIGNAR || existeUbicacion(m.origenId);
+    const destinoOk = m.destinoId === UBIC_SIN_ASIGNAR || existeUbicacion(m.destinoId);
+    if(!origenOk || !destinoOk) return;   // movimiento huerfano: se ignora
     if(m.destinoId === ubicId) s += q;
     if(m.origenId  === ubicId) s -= q;
   });
@@ -1306,10 +1325,46 @@ function getStockEnUbicacion(producto, ubicId){
   return s;
 }
 
+// Stock de un producto en una ubicacion.
+// "Sin asignar" es el residuo, asi el desglose siempre cuadra con el total.
+function getStockEnUbicacion(producto, ubicId){
+  if(ubicId === UBIC_SIN_ASIGNAR){
+    const total = getStockActual(producto);
+    const asignado = ubicacionesActivas().reduce(function(s,u){
+      return s + stockEnUbicacionReal(producto, u.id);
+    }, 0);
+    return total - asignado;
+  }
+  return stockEnUbicacionReal(producto, ubicId);
+}
+
 // Desglose por ubicacion: [{id, nombre, qty}]
 function stockPorUbicacion(producto){
-  return (appData.ubicaciones||[]).filter(function(u){ return u.activa !== false; })
-    .map(function(u){ return {id: u.id, nombre: u.nombre, qty: getStockEnUbicacion(producto, u.id)}; });
+  const lista = ubicacionesActivas()
+    .map(function(u){ return {id: u.id, nombre: u.nombre, qty: stockEnUbicacionReal(producto, u.id)}; });
+  const sin = getStockEnUbicacion(producto, UBIC_SIN_ASIGNAR);
+  if(sin !== 0) lista.push({id: UBIC_SIN_ASIGNAR, nombre: 'Sin asignar', qty: sin});
+  return lista;
+}
+
+// Registros sin ubicacion + movimientos huerfanos
+function contarSinAsignar(){
+  const v = appData.ventas.filter(function(x){ return !x.ubicacionId; }).length;
+  const c = appData.compras.filter(function(x){ return !x.ubicacionId; }).length;
+  const co = (appData.consumos||[]).filter(function(x){ return !x.ubicacionId; }).length;
+  const huerfanos = (appData.movimientos||[]).filter(function(m){
+    const oOk = m.origenId  === UBIC_SIN_ASIGNAR || existeUbicacion(m.origenId);
+    const dOk = m.destinoId === UBIC_SIN_ASIGNAR || existeUbicacion(m.destinoId);
+    return !oOk || !dOk;
+  }).length;
+  return {ventas: v, compras: c, consumos: co, huerfanos: huerfanos, total: v + c + co};
+}
+
+// Unidades totales pendientes de imputar
+function unidadesSinAsignar(){
+  return getTodosProductosMerged().reduce(function(s,p){
+    return s + getStockEnUbicacion(p.nombre, UBIC_SIN_ASIGNAR);
+  }, 0);
 }
 function codigoDe(nombreProducto){
   const n = normalizar(nombreProducto);
@@ -2557,6 +2612,17 @@ function renderListaUbicaciones(){
       + (ubics.length > 1 && !u.es_default ? '<button class="btn-icon" onclick="eliminarUbicacion(\'' + u.id + '\')" title="Eliminar">🗑</button>' : '')
       + '</div>';
   }).join('');
+
+  // Fila informativa de stock sin asignar
+  const n = contarSinAsignar();
+  if(n.total > 0){
+    const items = TODOS_LOS_PRODUCTOS.concat(appData.productosCustom||[]);
+    const un = items.reduce(function(s,p){ return s + Math.max(0, getStockEnUbicacion(p.nombre, UBIC_SIN_ASIGNAR)); }, 0);
+    cont.innerHTML += '<div style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:#fff3cd;border-radius:9px;margin-bottom:6px">'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="font-size:12.5px;font-weight:700;color:#856404">Sin asignar</div>'
+      + '<div style="font-size:10.5px;color:#856404;opacity:.85">' + un + ' unidades de registros históricos</div></div></div>';
+  }
 }
 
 async function agregarUbicacion(){
@@ -2615,6 +2681,90 @@ async function eliminarUbicacion(id){
   await sbDelete('ubicaciones', id);
   renderListaUbicaciones(); poblarSelectoresUbicacion(); renderStock();
   toast('Ubicación eliminada');
+}
+
+// ---- IMPUTAR HISTORICO SIN UBICACION ----
+function renderBloqueSinAsignar(){
+  const bloque = document.getElementById('bloqueSinAsignar');
+  if(!bloque) return;
+  const n = contarSinAsignar();
+  const ubics = (appData.ubicaciones||[]).filter(function(u){ return u.activa !== false; });
+
+  const unid = unidadesSinAsignar();
+  if((n.total === 0 && unid === 0 && !n.huerfanos) || !ubics.length){ bloque.style.display = 'none'; return; }
+
+  bloque.style.display = 'block';
+  const partes = [];
+  if(n.ventas)   partes.push(n.ventas + ' venta(s)');
+  if(n.compras)  partes.push(n.compras + ' compra(s)');
+  if(n.consumos) partes.push(n.consumos + ' consumo(s)');
+  const un = unidadesSinAsignar();
+  let txt = '';
+  if(partes.length){
+    txt += 'Hay <strong>' + partes.join(', ') + '</strong> sin ubicación asignada (son anteriores a esta función). ';
+  }
+  txt += 'Quedan <strong>' + un + ' unidades</strong> figurando como <strong>Sin asignar</strong>.';
+  if(n.huerfanos){
+    txt += '<br><br>También hay <strong>' + n.huerfanos + ' movimiento(s)</strong> que apuntan a una ubicación eliminada. '
+         + 'No se cuentan en el stock. Podés borrarlos desde Stock → Últimos movimientos.';
+  }
+  txt += '<br><br>Elegí a qué ubicación imputar todo.';
+  document.getElementById('textoSinAsignar').innerHTML = txt;
+
+  const sel = document.getElementById('selDestinoHistorico');
+  const act = sel.value;
+  sel.innerHTML = ubics.map(function(u){ return '<option value="'+u.id+'">'+u.nombre+'</option>'; }).join('');
+  if(act && ubics.some(function(u){ return u.id===act; })) sel.value = act;
+}
+
+async function imputarHistorico(){
+  const destino = document.getElementById('selDestinoHistorico').value;
+  if(!destino){ toast('Elegí una ubicación'); return; }
+  const n = contarSinAsignar();
+  if(n.total === 0 && unidadesSinAsignar() === 0){ toast('No hay stock sin asignar'); return; }
+
+  if(!confirm('Se va a imputar todo el stock sin asignar (' + unidadesSinAsignar() + ' unidades) a "'
+    + nombreUbicacion(destino) + '".\n\n¿Continuar?')) return;
+
+  const btnTxt = 'Asignando...';
+  mostrarCargando('Imputando registros históricos...');
+
+  const vs = appData.ventas.filter(function(x){ return !x.ubicacionId; });
+  const cs = appData.compras.filter(function(x){ return !x.ubicacionId; });
+  const os = (appData.consumos||[]).filter(function(x){ return !x.ubicacionId; });
+
+  for(let i=0;i<vs.length;i++){
+    await sbUpdate('ventas', vs[i].id, {ubicacion_id: destino});
+    vs[i].ubicacionId = destino;
+  }
+  for(let i=0;i<cs.length;i++){
+    await sbUpdate('compras', cs[i].id, {ubicacion_id: destino});
+    cs[i].ubicacionId = destino;
+  }
+  for(let i=0;i<os.length;i++){
+    await sbUpdate('consumos', os[i].id, {ubicacion_id: destino});
+    os[i].ubicacionId = destino;
+  }
+
+  // Trasladar el residuo pendiente con un movimiento desde "sin asignar"
+  const items = getTodosProductosMerged();
+  const pend = items.map(function(p){ return {nombre:p.nombre, q: getStockEnUbicacion(p.nombre, UBIC_SIN_ASIGNAR)}; });
+  for(let i=0;i<pend.length;i++){
+    const q = pend[i].q;
+    if(q > 0){
+      const id = 'mov_ini_' + Date.now() + '_' + i;
+      const ahora = new Date();
+      const fecha = ahora.getFullYear()+'-'+String(ahora.getMonth()+1).padStart(2,'0')+'-'+String(ahora.getDate()).padStart(2,'0');
+      appData.movimientos.unshift({id:id, fecha:fecha, producto:pend[i].nombre, cantidad:q,
+                                   origenId:UBIC_SIN_ASIGNAR, destinoId:destino, notas:'Imputación inicial'});
+      await sbUpsert('movimientos', {id:id, fecha:fecha, producto:pend[i].nombre, cantidad:q,
+                                     origen_id:UBIC_SIN_ASIGNAR, destino_id:destino, notas:'Imputación inicial'});
+    }
+  }
+
+  ocultarCargando();
+  renderBloqueSinAsignar(); renderListaUbicaciones(); renderStock();
+  toast(n.total + ' registro(s) imputados a ' + nombreUbicacion(destino));
 }
 
 // ---- TRANSFERENCIAS ----
@@ -2686,13 +2836,19 @@ function renderMovimientos(){
     return;
   }
   cont.innerHTML = movs.map(function(m){
-    return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:white;border-radius:8px;margin-bottom:5px;box-shadow:0 1px 3px var(--sombra)">'
+    const oOk = m.origenId  === UBIC_SIN_ASIGNAR || existeUbicacion(m.origenId);
+    const dOk = m.destinoId === UBIC_SIN_ASIGNAR || existeUbicacion(m.destinoId);
+    const huerfano = !oOk || !dOk;
+    return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:'
+      + (huerfano ? '#fff3cd' : 'white') + ';border-radius:8px;margin-bottom:5px;box-shadow:0 1px 3px var(--sombra)">'
       + '<div style="flex:1;min-width:0">'
       + '<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
       + m.cantidad + ' x ' + m.producto + '</div>'
-      + '<div style="font-size:10.5px;color:var(--gris2);opacity:.8">'
-      + nombreUbicacion(m.origenId) + ' → <strong>' + nombreUbicacion(m.destinoId) + '</strong>'
-      + ' · ' + formatFecha(m.fecha) + (m.notas ? ' · ' + m.notas : '') + '</div></div>'
+      + '<div style="font-size:10.5px;color:' + (huerfano ? '#856404' : 'var(--gris2)') + ';opacity:.85">'
+      + (oOk ? nombreUbicacion(m.origenId) : '<s>ubicación eliminada</s>')
+      + ' → <strong>' + (dOk ? nombreUbicacion(m.destinoId) : '<s>ubicación eliminada</s>') + '</strong>'
+      + ' · ' + formatFecha(m.fecha) + (m.notas ? ' · ' + m.notas : '')
+      + (huerfano ? ' · <strong>no se cuenta</strong>' : '') + '</div></div>'
       + '<button class="btn-icon" onclick="eliminarMovimiento(\'' + m.id + '\')" title="Deshacer">↩</button>'
       + '</div>';
   }).join('');
@@ -2709,11 +2865,13 @@ function renderUbicPills(){
   const cont = document.getElementById('ubicPills');
   if(!cont) return;
   const ubics = (appData.ubicaciones||[]).filter(function(u){ return u.activa !== false; });
-  if(ubics.length <= 1){ cont.innerHTML = ''; return; }
+  const hayS = contarSinAsignar().total > 0;
+  if(ubics.length <= 1 && !hayS){ cont.innerHTML = ''; return; }
   cont.innerHTML = '<button class="pill' + (ubicFiltro===''?' active':'') + '" onclick="setUbicFiltro(\'\',this)">Todas</button>'
     + ubics.map(function(u){
         return '<button class="pill verde' + (ubicFiltro===u.id?' active':'') + '" onclick="setUbicFiltro(\'' + u.id + '\',this)">' + u.nombre + '</button>';
-      }).join('');
+      }).join('')
+    + (hayS ? '<button class="pill' + (ubicFiltro===UBIC_SIN_ASIGNAR?' active':'') + '" style="border-color:#E76F51;color:#8b3a00" onclick="setUbicFiltro(\'' + UBIC_SIN_ASIGNAR + '\',this)">Sin asignar</button>' : '');
 }
 
 // ---- DUEÑOS ----
