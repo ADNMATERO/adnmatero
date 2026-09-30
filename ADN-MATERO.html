@@ -541,6 +541,11 @@ textarea{resize:vertical;min-height:50px;}
   <div id="cajaRows"></div>
   <div class="sec-title" style="margin-top:12px">Auditoría <span class="line"></span></div>
   <button class="btn btn-secondary" onclick="auditarCaja()">🔍 ¿Por qué cambió la caja?</button>
+  <div class="form-row" style="margin-top:10px">
+    <div><label>¿Cuánta plata esperabas tener?</label><input type="number" id="cajaEsperada" placeholder="Ej: 900000"></div>
+    <div style="display:flex;align-items:flex-end"><button class="btn btn-primary" onclick="buscarDiferencia()" style="width:100%">🎯 Buscar la diferencia</button></div>
+  </div>
+  <div id="cajaBusqueda" style="margin-top:10px"></div>
   <div id="cajaAuditoria" style="margin-top:10px"></div>
   <div class="sec-title" style="margin-top:12px">Márgenes por Categoría <span class="line"></span></div>
   <table class="tabla"><thead><tr><th>Categoría</th><th>Ventas $</th><th>Costo $</th><th>Resultado</th></tr></thead>
@@ -616,10 +621,16 @@ textarea{resize:vertical;min-height:50px;}
   <div class="config-section">
     <h4>💼 Datos del Negocio</h4>
     <div class="form-row one"><div><label>Capital Inicial $</label><input type="number" id="cfgCapital" value="678000"></div></div>
+    <div style="font-size:10px;opacity:.65;margin:-4px 0 8px;line-height:1.5">
+      Referencia de tu Excel al 3-4-2026: capital <strong>$678.000</strong>, adelantos <strong>$15.000</strong>, saldo en caja <strong>$439.076</strong>.
+      Si el capital de acá arriba no dice 678.000, alguien lo cambió.
+    </div>
     <div class="form-row one">
       <div><label>Adelantos / Retiros $</label><input type="number" id="cfgAdelantos" value="0"></div>
     </div>
     <input type="hidden" id="cfgSaldoCaja" value="0">
+    <button class="btn btn-secondary" onclick="verHistorialConfig()" style="margin-top:6px">🕓 Ver quién cambió el capital</button>
+    <div id="configHistorial" style="margin-top:8px"></div>
   </div>
   <div class="config-section">
     <h4>⚠️ Alertas de Stock</h4>
@@ -1209,6 +1220,39 @@ async function guardarConfigSupa(){
     saldo_caja: appData.config.saldoCaja,
     stock_threshold: appData.config.stockThreshold
   });
+  // Deja rastro de quien toco capital o adelantos y cuando
+  try {
+    await sbUpsert('config_log', {
+      id: Date.now().toString() + '_' + Math.random().toString(36).slice(2,6),
+      capital: appData.config.capital,
+      adelantos: appData.config.adelantos,
+      saldo_caja: appData.config.saldoCaja
+    });
+  } catch(e){ console.warn('config_log:', e); }
+}
+
+// Muestra el historial de cambios de capital y adelantos
+async function verHistorialConfig(){
+  const cont = document.getElementById('configHistorial');
+  cont.innerHTML = '<div style="opacity:.6;font-size:12px">Buscando…</div>';
+  const logs = await sbGet('config_log','order=created_at.desc&limit=50');
+  if(!logs.length){
+    cont.innerHTML = `<div class="alerta">No hay cambios registrados todavía. El historial arranca a partir de ahora: cada vez que alguien toque capital o adelantos y guarde, queda anotado con fecha y hora.<br><br>Mientras tanto, tu ancla es el Excel: capital <strong>$678.000</strong>, adelantos <strong>$15.000</strong>.</div>`;
+    return;
+  }
+  let html = '<table class="tabla"><thead><tr><th>Cuándo</th><th>Capital</th><th>Adelantos</th></tr></thead><tbody>';
+  logs.forEach(function(l, i){
+    const ts = l.created_at || '';
+    const cuando = ts ? `${ts.slice(8,10)}/${ts.slice(5,7)}/${ts.slice(0,4)} ${ts.slice(11,16)}` : '—';
+    const prev = logs[i+1];
+    const cambioCap  = prev && Math.abs((parseFloat(l.capital)||0)-(parseFloat(prev.capital)||0)) > 0.5;
+    const cambioAdel = prev && Math.abs((parseFloat(l.adelantos)||0)-(parseFloat(prev.adelantos)||0)) > 0.5;
+    html += `<tr><td style="font-size:11px">${cuando}</td>`
+         +  `<td${cambioCap?' style="color:#e57373"':''}><strong>${formatPeso(l.capital||0)}</strong>${cambioCap?' ←cambió':''}</td>`
+         +  `<td${cambioAdel?' style="color:#e57373"':''}>${formatPeso(l.adelantos||0)}${cambioAdel?' ←cambió':''}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  cont.innerHTML = html;
 }
 
 // Refrescar datos en background (para sincronización entre celulares)
@@ -2148,6 +2192,12 @@ function setHistFiltro(el){document.querySelectorAll('#histFiltros .pill').forEa
 // ══════════════════════════════════════════════════════════════
 // AUDITORIA DE CAJA — foto diaria y explicacion de las diferencias
 // ══════════════════════════════════════════════════════════════
+// Valores de referencia tomados del Excel ADN_3-4-26 (hoja "EFE - Caja" y "FF").
+// Sirven de ancla para saber si alguien piso estos campos.
+const CAPITAL_EXCEL   = 678000;
+const ADELANTOS_EXCEL = 15000;
+const CAJA_EXCEL      = 439076;   // saldo en caja al 3-4-2026 segun el Excel
+
 function fechaHoyLocal(){
   const a=new Date();
   return `${a.getFullYear()}-${String(a.getMonth()+1).padStart(2,'0')}-${String(a.getDate()).padStart(2,'0')}`;
@@ -2219,11 +2269,13 @@ async function auditarCaja(){
   }
 
   // 2) Senal de alarma: capital igual al valor por defecto del codigo
-  if(c.capital === 678000 && appData.ventas.length > 0){
-    html += `<div class="alerta alerta-roja">⚠️ El capital inicial figura en exactamente <strong>$678.000</strong>, que es el valor por defecto que trae la app. Si vos habías puesto otro número, se pisó. Revisalo en <strong>Config</strong> y volvé a guardar el valor correcto: mientras esté mal, la plata en mano queda mal por esa misma diferencia.</div>`;
+  if(c.capital === CAPITAL_EXCEL){
+    html += `<div class="alerta">✅ Capital inicial: <strong>${formatPeso(c.capital)}</strong>, igual al de tu Excel (hoja EFE - Caja). Está intacto.</div>`;
+  } else {
+    html += `<div class="alerta alerta-roja">⚠️ El capital inicial figura en <strong>${formatPeso(c.capital)}</strong>, pero en tu Excel era <strong>${formatPeso(CAPITAL_EXCEL)}</strong>. Diferencia de <strong>${formatPeso(Math.abs(c.capital-CAPITAL_EXCEL))}</strong>, que se traslada tal cual a la plata en mano. Si no fuiste vos, corregilo en Config.</div>`;
   }
-  if(c.adelantos === 0){
-    html += `<div class="alerta">ℹ️ Adelantos/Retiros está en <strong>$0</strong>. Si los tres sacaron plata y no está cargada, la caja te va a mostrar más de lo que hay.</div>`;
+  if(c.adelantos !== ADELANTOS_EXCEL){
+    html += `<div class="alerta">ℹ️ Adelantos/Retiros está en <strong>${formatPeso(c.adelantos)}</strong>; en tu Excel era <strong>${formatPeso(ADELANTOS_EXCEL)}</strong>. Si desde entonces sacaron más plata, está bien que haya subido.</div>`;
   }
 
   // 3) Que se movio en las ultimas 72 horas
@@ -2288,6 +2340,151 @@ async function auditarCaja(){
        +  `Capital inicial: <strong>${formatPeso(c.capital)}</strong> · Adelantos: <strong>${formatPeso(c.adelantos)}</strong><br>`
        +  `Cobrado: <strong>${formatPeso(c.cobrado)}</strong> − Compras: <strong>${formatPeso(c.compras)}</strong> − Gastos: <strong>${formatPeso(c.gastos)}</strong><br>`
        +  `= Plata en mano: <strong style="color:var(--verde3)">${formatPeso(c.enMano)}</strong></div>`;
+
+  cont.innerHTML = html;
+}
+
+// Busca de donde puede venir una diferencia concreta contra el numero esperado
+function buscarDiferencia(){
+  const cont = document.getElementById('cajaBusqueda');
+  const esperada = parseFloat(document.getElementById('cajaEsperada').value);
+  if(!esperada || esperada <= 0){ toast('⚠️ Poné cuánta plata esperabas tener'); return; }
+  const c = componentesCaja();
+  const gap = Math.round(c.enMano - esperada);
+  const abs = Math.abs(gap);
+  const tol = Math.max(50, abs*0.02);
+  let html = `<div class="alerta ${abs>1?'alerta-roja':''}"><strong>La app dice ${formatPeso(c.enMano)} y vos esperabas ${formatPeso(esperada)}.</strong><br>`
+           + `Diferencia: <strong>${gap>=0?'sobran':'faltan'} ${formatPeso(abs)}</strong>. Abajo busco de dónde puede salir ese número exacto.</div>`;
+
+  const hits = [];
+
+  // 1) Los dos campos que el bug de carga ponia en cero o en el default
+  if(Math.abs(c.capital - 678000) < 1 && gap > 0){
+    hits.push(`El <strong>capital inicial</strong> está en $678.000, que es el valor por defecto de la app. Si el tuyo era <strong>${formatPeso(678000-gap)}</strong>, ahí está la diferencia completa. Corregilo en Config.`);
+  }
+  if(c.adelantos === 0 && gap > 0){
+    hits.push(`<strong>Adelantos/Retiros</strong> está en $0. Si entre los tres sacaron <strong>${formatPeso(abs)}</strong> y no está cargado, eso explica la diferencia entera. Cargalo en Config.`);
+  }
+
+  // 2) Un solo movimiento que valga exactamente la diferencia
+  const cand = [];
+  appData.ventas.forEach(function(v){
+    const m = v.cobrada ? (parseFloat(v.total)||0) : (parseFloat(v.montoCobrado)||0);
+    if(m>0 && Math.abs(m-abs)<=tol) cand.push({t:'Venta cobrada', d:`${v.fecha} · ${v.producto} · ${v.cliente||'sin cliente'}`, m:m, id:v.id});
+  });
+  appData.compras.forEach(function(x){
+    const m = parseFloat(x.total)||0;
+    if(m>0 && Math.abs(m-abs)<=tol) cand.push({t:'Compra', d:`${x.fecha} · ${x.producto} · ${x.proveedor||''}`, m:m, id:x.id});
+  });
+  (appData.gastos||[]).forEach(function(g){
+    const m = parseFloat(g.monto)||0;
+    if(m>0 && Math.abs(m-abs)<=tol) cand.push({t:'Gasto'+(g.pagado?' pagado':' sin pagar'), d:`${g.fecha} · ${g.tipo} · ${g.descripcion||''}`, m:m, id:g.id});
+  });
+
+  // 3) Dos ventas que sumadas den la diferencia
+  const pares = [];
+  const porTotal = {};
+  appData.ventas.filter(function(v){return v.cobrada;}).forEach(function(v){
+    const t = Math.round(parseFloat(v.total)||0);
+    (porTotal[t] = porTotal[t] || []).push(v);
+  });
+  const totales = Object.keys(porTotal).map(Number);
+  totales.forEach(function(t){
+    const resto = Math.round(abs) - t;
+    if(resto < t) return;
+    if(porTotal[resto] && (resto!==t || porTotal[t].length>1)){
+      pares.push([porTotal[t][0], porTotal[resto][resto===t?1:0]]);
+    }
+  });
+
+  if(hits.length){
+    html += `<div class="sec-title" style="margin-top:10px">Lo más probable <span class="line"></span></div>`;
+    hits.forEach(function(h){ html += `<div class="alerta alerta-roja">⚠️ ${h}</div>`; });
+  }
+
+  html += `<div class="sec-title" style="margin-top:10px">Movimientos que valen ${formatPeso(abs)} (${cand.length}) <span class="line"></span></div>`;
+  if(cand.length === 0){
+    html += `<div class="alerta">Ningún movimiento suelto coincide con ese importe.</div>`;
+  } else {
+    html += `<table class="tabla"><thead><tr><th>Qué</th><th>Detalle</th><th>Importe</th></tr></thead><tbody>`;
+    cand.slice(0,20).forEach(function(r){
+      html += `<tr><td><strong>${r.t}</strong></td><td style="font-size:11px">${r.d}</td><td>${formatPeso(r.m)}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  if(pares.length){
+    html += `<div class="sec-title" style="margin-top:10px">Pares de ventas que suman ${formatPeso(abs)} <span class="line"></span></div>`;
+    html += `<table class="tabla"><thead><tr><th>Venta 1</th><th>Venta 2</th></tr></thead><tbody>`;
+    pares.slice(0,10).forEach(function(p){
+      html += `<tr><td style="font-size:11px">${p[0].fecha} · ${p[0].producto} · ${formatPeso(p[0].total)}</td>`
+           +  `<td style="font-size:11px">${p[1].fecha} · ${p[1].producto} · ${formatPeso(p[1].total)}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+
+  // 4) Ventas cuyo total no coincide con cantidad x precio: dedo pegado en un cero
+  const malas = appData.ventas.filter(function(v){
+    const esp = (parseFloat(v.cantidad)||0)*(parseFloat(v.precioUnit)||0);
+    return esp>0 && Math.abs((parseFloat(v.total)||0)-esp) > 1;
+  });
+  html += `<div class="sec-title" style="margin-top:10px">Ventas donde el total no da con cantidad × precio (${malas.length}) <span class="line"></span></div>`;
+  if(malas.length === 0){
+    html += `<div class="alerta">Todas las ventas cierran con su cantidad y precio. No hay ceros de más.</div>`;
+  } else {
+    let sumaMal = 0;
+    html += `<div class="scroll-area" style="max-height:200px"><table class="tabla"><thead><tr><th>Fecha</th><th>Producto</th><th>Debería ser</th><th>Está</th><th>De más</th></tr></thead><tbody>`;
+    malas.forEach(function(v){
+      const esp = (parseFloat(v.cantidad)||0)*(parseFloat(v.precioUnit)||0);
+      const d = (parseFloat(v.total)||0)-esp;
+      if(v.cobrada) sumaMal += d;
+      html += `<tr><td>${v.fecha}</td><td style="font-size:11px">${v.producto}<br><span style="font-size:9px;opacity:.6">${v.cantidad} × ${formatPeso(v.precioUnit)}</span></td>`
+           +  `<td>${formatPeso(esp)}</td><td>${formatPeso(v.total)}</td>`
+           +  `<td style="color:${d>=0?'#e57373':'var(--verde3)'}"><strong>${d>=0?'+':'−'}${formatPeso(Math.abs(d))}</strong></td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+    html += `<div class="alerta alerta-roja">Entre las cobradas, esos totales mal cargados suman <strong>${formatPeso(sumaMal)}</strong> de más en la caja.</div>`;
+  }
+
+  // 5) Cobrado y gastado mes por mes
+  const meses = {};
+  function acum(clave, campo, monto){
+    meses[clave] = meses[clave] || {cob:0, comp:0, gast:0};
+    meses[clave][campo] += monto;
+  }
+  appData.ventas.forEach(function(v){
+    const m = (v.fecha||'').slice(0,7); if(!m) return;
+    acum(m,'cob', v.cobrada ? (parseFloat(v.total)||0) : (parseFloat(v.montoCobrado)||0));
+  });
+  appData.compras.forEach(function(x){
+    const m = (x.fecha||'').slice(0,7); if(!m) return;
+    acum(m,'comp', parseFloat(x.total)||0);
+  });
+  (appData.gastos||[]).forEach(function(g){
+    const m = (g.fecha||'').slice(0,7); if(!m) return;
+    if(g.pagado) acum(m,'gast', parseFloat(g.monto)||0);
+  });
+  const clavesMes = Object.keys(meses).sort().reverse();
+  html += `<div class="sec-title" style="margin-top:10px">Mes por mes <span class="line"></span></div>`;
+  html += `<div class="scroll-area" style="max-height:240px"><table class="tabla"><thead><tr><th>Mes</th><th>Cobrado</th><th>Compras</th><th>Gastos</th><th>Neto</th></tr></thead><tbody>`;
+  clavesMes.forEach(function(k){
+    const m = meses[k], neto = m.cob-m.comp-m.gast;
+    html += `<tr><td><strong>${k}</strong></td><td>${formatPeso(m.cob)}</td><td>${formatPeso(m.comp)}</td><td>${formatPeso(m.gast)}</td>`
+         +  `<td style="color:${neto>=0?'var(--verde3)':'#e57373'}"><strong>${formatPeso(neto)}</strong></td></tr>`;
+  });
+  html += `<tr class="caja-row total"><td><strong>TOTAL</strong></td><td><strong>${formatPeso(c.cobrado)}</strong></td><td><strong>${formatPeso(c.compras)}</strong></td><td><strong>${formatPeso(c.gastos)}</strong></td>`
+       +  `<td><strong>${formatPeso(c.cobrado-c.compras-c.gastos)}</strong></td></tr>`;
+  html += `</tbody></table></div>`;
+  html += `<div style="font-size:11px;opacity:.8;margin-top:6px;line-height:1.6">A ese neto de <strong>${formatPeso(c.cobrado-c.compras-c.gastos)}</strong> la app le suma el capital inicial de <strong>${formatPeso(c.capital)}</strong> y le resta <strong>${formatPeso(c.adelantos)}</strong> de adelantos. Resultado: <strong style="color:var(--verde3)">${formatPeso(c.enMano)}</strong>.</div>`;
+
+  // 6) Las 15 ventas cobradas mas grandes: un cero de mas salta a la vista
+  const top = appData.ventas.filter(function(v){return v.cobrada;})
+    .slice().sort(function(a,b){ return (parseFloat(b.total)||0)-(parseFloat(a.total)||0); }).slice(0,15);
+  html += `<div class="sec-title" style="margin-top:10px">Las 15 ventas cobradas más grandes <span class="line"></span></div>`;
+  html += `<div class="scroll-area" style="max-height:220px"><table class="tabla"><thead><tr><th>Fecha</th><th>Producto</th><th>Cant.</th><th>Total</th></tr></thead><tbody>`;
+  top.forEach(function(v){
+    html += `<tr><td>${v.fecha}</td><td style="font-size:11px">${v.producto}<br><span style="font-size:9px;opacity:.6">${v.cliente||''}</span></td><td>${v.cantidad}</td><td><strong>${formatPeso(v.total)}</strong></td></tr>`;
+  });
+  html += `</tbody></table></div>`;
 
   cont.innerHTML = html;
 }
