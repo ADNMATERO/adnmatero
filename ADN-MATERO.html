@@ -555,17 +555,7 @@ textarea{resize:vertical;min-height:50px;}
     </div>
   </div>
   <div class="sec-title">Efectivo vs Mercado Pago <span class="line"></span></div>
-  <div style="font-size:11px;opacity:.8;line-height:1.6;margin-bottom:8px">
-    Contá lo que tenés hoy en cada cuenta y anotalo acá. De ahí en adelante, cada venta,
-    compra y gasto que cargues con su medio se suma o resta a la cuenta que corresponda.
-    No hace falta tocar nada de lo viejo.
-  </div>
-  <div class="form-row">
-    <div><label>💵 Tengo hoy en efectivo $</label><input type="number" id="saldoIniEf" placeholder="0"></div>
-    <div><label>📱 Tengo hoy en Mercado Pago $</label><input type="number" id="saldoIniMp" placeholder="0"></div>
-  </div>
-  <button class="btn btn-primary" onclick="guardarSaldosArranque()">💾 GUARDAR SALDOS DE ARRANQUE</button>
-  <table class="tabla" style="margin-top:10px"><thead><tr><th>Concepto</th><th>💵 Efectivo</th><th>📱 Mercado Pago</th></tr></thead>
+  <table class="tabla"><thead><tr><th>Concepto</th><th>💵 Efectivo</th><th>📱 Mercado Pago</th></tr></thead>
   <tbody id="tbodyMedios"></tbody></table>
   <div id="avisoSinMedio"></div>
 
@@ -673,13 +663,17 @@ textarea{resize:vertical;min-height:50px;}
 <div id="panel-config" class="panel">
   <div class="config-section">
     <h4>💼 Datos del Negocio</h4>
-    <div class="form-row one"><div><label>Capital Inicial $</label><input type="number" id="cfgCapital" placeholder="cargando…"></div></div>
+    <div class="form-row one"><div><label>Capital Inicial $ (total)</label><input type="number" id="cfgCapital" placeholder="cargando…" oninput="previewReparto()"></div></div>
     <div class="form-row one">
-      <div><label>Adelantos / Retiros $</label><input type="number" id="cfgAdelantos" placeholder="0"></div>
+      <div><label>…de eso, cuánto está en Mercado Pago $</label><input type="number" id="cfgCapitalMp" placeholder="0" oninput="previewReparto()"></div>
     </div>
-    <div style="font-size:10px;opacity:.6;margin:-2px 0 8px">
-      El reparto entre efectivo y Mercado Pago se hace desde la pestaña Caja, con los saldos de arranque.
+    <div class="form-row one">
+      <div><label>Adelantos / Retiros $ (total)</label><input type="number" id="cfgAdelantos" placeholder="0" oninput="previewReparto()"></div>
     </div>
+    <div class="form-row one">
+      <div><label>…de eso, cuánto salió de Mercado Pago $</label><input type="number" id="cfgAdelantosMp" placeholder="0" oninput="previewReparto()"></div>
+    </div>
+    <div id="repartoPreview" style="font-size:11px;opacity:.8;margin:-2px 0 8px;line-height:1.6"></div>
     <div style="font-size:10px;opacity:.6;margin:0 0 8px;line-height:1.5">
       Referencia histórica del Excel al 3-4-2026: capital $678.000, adelantos $15.000, caja $439.076.
     </div>
@@ -1104,7 +1098,7 @@ async function sbUpdate(table, id, data){
 // con la pantalla a medio cargar escribia los valores por defecto del codigo.
 let datosOk = false;
 
-let appData = { ventas:[], compras:[], gastos:[], productosCustom:[], ubicaciones:[], movimientos:[], duenos:[], consumos:[], movCaja:[], config:{ capital:0, adelantos:0, saldoIniEf:0, saldoIniMp:0, saldoCaja:0, stockThreshold:3 } };
+let appData = { ventas:[], compras:[], gastos:[], productosCustom:[], ubicaciones:[], movimientos:[], duenos:[], consumos:[], movCaja:[], config:{ capital:0, capitalMp:0, adelantos:0, adelantosMp:0, saldoCaja:0, stockThreshold:3 } };
 let _cargando = false;
 
 function mostrarCargando(msg='Cargando...'){
@@ -1204,9 +1198,9 @@ async function cargarDatos() {
       const cfg = cfgArr[0];
       appData.config = {
         capital: cfg.capital != null ? cfg.capital : 0,
+        capitalMp: cfg.capital_mp != null ? cfg.capital_mp : 0,
         adelantos: cfg.adelantos != null ? cfg.adelantos : 0,
-        saldoIniEf: cfg.saldo_ini_efectivo != null ? cfg.saldo_ini_efectivo : 0,
-        saldoIniMp: cfg.saldo_ini_mp != null ? cfg.saldo_ini_mp : 0,
+        adelantosMp: cfg.adelantos_mp != null ? cfg.adelantos_mp : 0,
         saldoCaja: cfg.saldo_caja != null ? cfg.saldo_caja : 0,
         stockThreshold: cfg.stock_threshold != null ? cfg.stock_threshold : 3,
         historicos_cargados: cfg.historicos_cargados || false
@@ -1237,9 +1231,10 @@ async function cargarDatos() {
   }
 
   document.getElementById('cfgCapital').value        = appData.config.capital;
+  document.getElementById('cfgCapitalMp').value      = appData.config.capitalMp;
   document.getElementById('cfgAdelantos').value      = appData.config.adelantos;
-  document.getElementById('saldoIniEf').value        = appData.config.saldoIniEf;
-  document.getElementById('saldoIniMp').value        = appData.config.saldoIniMp;
+  document.getElementById('cfgAdelantosMp').value    = appData.config.adelantosMp;
+  previewReparto();
   document.getElementById('cfgSaldoCaja').value      = appData.config.saldoCaja;
   document.getElementById('cfgStockThreshold').value = appData.config.stockThreshold;
   ocultarCargando();
@@ -1291,9 +1286,9 @@ async function guardarConfigSupa(){
   await sbUpsert('config',{
     id:'main',
     capital: appData.config.capital,
+    capital_mp: appData.config.capitalMp,
     adelantos: appData.config.adelantos,
-    saldo_ini_efectivo: appData.config.saldoIniEf,
-    saldo_ini_mp: appData.config.saldoIniMp,
+    adelantos_mp: appData.config.adelantosMp,
     saldo_caja: appData.config.saldoCaja,
     stock_threshold: appData.config.stockThreshold
   });
@@ -2201,11 +2196,14 @@ function nombreMedio(m){
 
 function saldosPorMedio(){
   const cfg = appData.config;
-  // Punto de partida: lo que Mariano contó que tiene en cada cuenta.
-  // Todo lo anterior a eso queda absorbido ahí y no hace falta etiquetarlo.
+  const capTot  = parseFloat(cfg.capital)||0;
+  const capMp   = parseFloat(cfg.capitalMp)||0;
+  const adelTot = parseFloat(cfg.adelantos)||0;
+  const adelMp  = parseFloat(cfg.adelantosMp)||0;
+
   const r = {
-    efectivo:    {inicio: parseFloat(cfg.saldoIniEf)||0, cobrado:0, compras:0, gastos:0, movs:0},
-    mercadopago: {inicio: parseFloat(cfg.saldoIniMp)||0, cobrado:0, compras:0, gastos:0, movs:0}
+    efectivo:    {capital: capTot-capMp, cobrado:0, compras:0, gastos:0, movs:0, adelantos: adelTot-adelMp},
+    mercadopago: {capital: capMp,        cobrado:0, compras:0, gastos:0, movs:0, adelantos: adelMp}
   };
   const sin = {cobrado:0, compras:0, gastos:0};
 
@@ -2234,7 +2232,7 @@ function saldosPorMedio(){
 
   MEDIOS.forEach(function(k){
     const x = r[k];
-    x.saldo = x.inicio + x.cobrado - x.compras - x.gastos + x.movs;
+    x.saldo = x.capital + x.cobrado - x.compras - x.gastos + x.movs - x.adelantos;
   });
   const enMano = componentesCaja().enMano;
   r.sinAsignar = {cobrado:sin.cobrado, compras:sin.compras, gastos:sin.gastos,
@@ -2252,11 +2250,12 @@ function renderMedios(){
   document.getElementById('cajaMPSub').textContent       = `cobrado ${formatPeso(mp.cobrado)}`;
 
   const filas = [
-    ['Saldo de arranque',  ef.inicio,   mp.inicio],
-    ['(+) Cobrado desde entonces', ef.cobrado, mp.cobrado],
+    ['Capital inicial',    ef.capital,  mp.capital],
+    ['(+) Cobrado',        ef.cobrado,  mp.cobrado],
     ['(-) Compras',       -ef.compras, -mp.compras],
     ['(-) Gastos pagados', -ef.gastos,  -mp.gastos],
     ['(±) Pasajes entre cuentas', ef.movs, mp.movs],
+    ['(-) Adelantos',     -ef.adelantos, -mp.adelantos],
   ];
   let html = '';
   filas.forEach(function(f){
@@ -2271,53 +2270,36 @@ function renderMedios(){
   document.getElementById('tbodyMedios').innerHTML = html;
 
   const aviso = document.getElementById('avisoSinMedio');
-  const conMedio = appData.ventas.filter(function(v){ return v.medio; }).length
-                 + appData.compras.filter(function(c){ return c.medio; }).length
-                 + (appData.gastos||[]).filter(function(g){ return g.medio; }).length;
-  let av = '';
   if(Math.abs(sa.saldo) > 1){
-    av += `<div class="alerta" style="margin-top:8px">\u{1F4CC} <strong>${formatPeso(sa.saldo)}</strong> del total no está en ninguna de las dos cuentas de arriba. `
-       + `Es todo lo de antes del arranque más el capital y los adelantos. Los dos saldos más esto dan la plata en mano, así que la cuenta cierra. `
-       + `Si contás tu efectivo y tu Mercado Pago de hoy y los ponés arriba, este número se va a cero solo.</div>`;
+    const nV = appData.ventas.filter(function(v){ return !v.medio && (v.cobrada || v.montoCobrado>0); }).length;
+    const nC = appData.compras.filter(function(c){ return !c.medio; }).length;
+    const nG = (appData.gastos||[]).filter(function(g){ return g.pagado && !g.medio; }).length;
+    aviso.innerHTML = `<div class="alerta" style="margin-top:8px">\u{1F4CC} Quedan <strong>${formatPeso(sa.saldo)}</strong> sin asignar a ninguna cuenta: `
+      + `${nV} venta(s), ${nC} compra(s) y ${nG} gasto(s) cargados antes de que existiera esta separación. `
+      + `Los dos saldos de arriba más esto da la plata en mano total, así que la cuenta cierra igual.<br><br>`
+      + `<button class="btn btn-secondary" onclick="asignarMedioViejos('efectivo')" style="margin-top:4px">Marcar todo eso como 💵 Efectivo</button>`
+      + `<button class="btn btn-secondary" onclick="asignarMedioViejos('mercadopago')" style="margin-top:4px">Marcar todo como 📱 Mercado Pago</button></div>`;
+  } else {
+    aviso.innerHTML = '';
   }
-  if(conMedio > 0){
-    av += `<div class="alerta" style="margin-top:8px">\u{1F3F7} Hay <strong>${conMedio}</strong> registro(s) con medio asignado. `
-       + `Si marcaste de más por error, podés limpiarlos todos de una y volver a empezar:<br>`
-       + `<button class="btn btn-secondary" onclick="limpiarMedios()" style="margin-top:6px">\u{21A9} Desmarcar todo y volver a Sin asignar</button></div>`;
-  }
-  aviso.innerHTML = av;
 }
 
-// Saca el medio de todos los registros que lo tengan: deshace una asignacion
-// masiva hecha por error y deja todo como antes.
-async function limpiarMedios(){
-  const vs = appData.ventas.filter(function(v){ return v.medio; });
-  const cs = appData.compras.filter(function(c){ return c.medio; });
-  const gs = (appData.gastos||[]).filter(function(g){ return g.medio; });
+// Asigna un medio a todo lo viejo que no lo tenga. Pide confirmacion porque
+// toca muchos registros de una sola vez.
+async function asignarMedioViejos(medio){
+  const vs = appData.ventas.filter(function(v){ return !v.medio && (v.cobrada || v.montoCobrado>0); });
+  const cs = appData.compras.filter(function(c){ return !c.medio; });
+  const gs = (appData.gastos||[]).filter(function(g){ return g.pagado && !g.medio; });
   const n = vs.length + cs.length + gs.length;
-  if(!n){ toast('No hay nada marcado'); return; }
-  if(!confirm(`Vas a borrar el medio de pago de ${n} registro(s): ${vs.length} ventas, ${cs.length} compras, ${gs.length} gastos.\n\nTodos vuelven a "Sin asignar". Los importes, fechas y clientes no se tocan.\n\n¿Confirmás?`)) return;
-  mostrarCargando('Limpiando…');
-  let hechos = 0;
-  for(const v of vs){ v.medio = null; await sbUpdate('ventas',  v.id, {medio:null}); hechos++; if(hechos%25===0) mostrarCargando(`Limpiando… ${hechos}/${n}`); }
-  for(const c of cs){ c.medio = null; await sbUpdate('compras', c.id, {medio:null}); hechos++; if(hechos%25===0) mostrarCargando(`Limpiando… ${hechos}/${n}`); }
-  for(const g of gs){ g.medio = null; await sbUpdate('gastos',  g.id, {medio:null}); hechos++; if(hechos%25===0) mostrarCargando(`Limpiando… ${hechos}/${n}`); }
+  if(!n){ toast('No hay nada sin asignar'); return; }
+  if(!confirm(`Vas a marcar ${n} registro(s) como ${medio === 'efectivo' ? 'Efectivo' : 'Mercado Pago'}.\n\n${vs.length} ventas, ${cs.length} compras, ${gs.length} gastos.\n\n¿Confirmás?`)) return;
+  mostrarCargando('Asignando…');
+  for(const v of vs){ v.medio = medio; await sbUpdate('ventas',  v.id, {medio:medio}); }
+  for(const c of cs){ c.medio = medio; await sbUpdate('compras', c.id, {medio:medio}); }
+  for(const g of gs){ g.medio = medio; await sbUpdate('gastos',  g.id, {medio:medio}); }
   ocultarCargando();
-  toast(`\u{21A9} ${n} registro(s) desmarcados`);
+  toast(`✅ ${n} registro(s) asignados`);
   renderCaja();
-}
-
-// Guarda los saldos que Mariano contó en cada cuenta
-async function guardarSaldosArranque(){
-  if(!datosOk){ toast('⚠️ Los datos no se cargaron. Recargá la página'); return; }
-  const ef = parseFloat(document.getElementById('saldoIniEf').value);
-  const mp = parseFloat(document.getElementById('saldoIniMp').value);
-  if(!isFinite(ef) || !isFinite(mp)){ toast('⚠️ Completá los dos saldos (poné 0 si una cuenta está vacía)'); return; }
-  appData.config.saldoIniEf = ef;
-  appData.config.saldoIniMp = mp;
-  await guardarConfigSupa();
-  renderCaja();
-  toast('✅ Saldos de arranque guardados');
 }
 
 async function guardarMovCaja(){
@@ -2363,6 +2345,22 @@ function renderMovCaja(){
       + `<td><strong>${formatPeso(m.monto)}</strong></td>`
       + `<td><button class="btn-icon" onclick="eliminarMovCaja('${m.id}')">🗑</button></td></tr>`;
   }).join('');
+}
+
+// Muestra como queda repartido el capital mientras se escribe en Config
+function previewReparto(){
+  const el = document.getElementById('repartoPreview');
+  if(!el) return;
+  const cap  = parseFloat(document.getElementById('cfgCapital').value)||0;
+  const capMp= parseFloat(document.getElementById('cfgCapitalMp').value)||0;
+  const ad   = parseFloat(document.getElementById('cfgAdelantos').value)||0;
+  const adMp = parseFloat(document.getElementById('cfgAdelantosMp').value)||0;
+  if(capMp > cap){
+    el.innerHTML = `<span style="color:#e57373">⚠️ La parte en Mercado Pago (${formatPeso(capMp)}) no puede ser mayor al capital total (${formatPeso(cap)}).</span>`;
+    return;
+  }
+  el.innerHTML = `Capital: <strong>${formatPeso(cap-capMp)}</strong> en efectivo + <strong>${formatPeso(capMp)}</strong> en Mercado Pago.<br>`
+    + `Adelantos: <strong>${formatPeso(ad-adMp)}</strong> del efectivo + <strong>${formatPeso(adMp)}</strong> de Mercado Pago.`;
 }
 
 function renderCaja(){
@@ -3031,6 +3029,8 @@ function guardarConfig(){
     return;
   }
   const cap  = parseFloat(document.getElementById('cfgCapital').value);
+  const capMp  = parseFloat(document.getElementById('cfgCapitalMp').value);
+  const adelMp = parseFloat(document.getElementById('cfgAdelantosMp').value);
   const adel = parseFloat(document.getElementById('cfgAdelantos').value);
   const sal  = parseFloat(document.getElementById('cfgSaldoCaja').value);
   const umb  = parseInt(document.getElementById('cfgStockThreshold').value);
@@ -3044,7 +3044,12 @@ function guardarConfig(){
   if(Math.abs(cap-antes) > 1 && antes > 0){
     if(!confirm(`Vas a cambiar el capital inicial de ${formatPeso(antes)} a ${formatPeso(cap)}.\n\nEso mueve la plata en mano ${cap>antes?'para arriba':'para abajo'} en ${formatPeso(Math.abs(cap-antes))}.\n\n¿Confirmás?`)) return;
   }
+  const capMpOk  = isFinite(capMp)  ? capMp  : 0;
+  const adelMpOk = isFinite(adelMp) ? adelMp : 0;
+  if(capMpOk > cap){ toast('⚠️ La parte en Mercado Pago no puede ser mayor al capital total'); return; }
   appData.config.capital        = cap;
+  appData.config.capitalMp      = capMpOk;
+  appData.config.adelantosMp    = adelMpOk;
   appData.config.adelantos      = isFinite(adel) ? adel : appData.config.adelantos;
   appData.config.saldoCaja      = isFinite(sal)  ? sal  : appData.config.saldoCaja;
   appData.config.stockThreshold = isFinite(umb)  ? umb  : appData.config.stockThreshold;
