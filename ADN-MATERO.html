@@ -557,17 +557,7 @@ textarea{resize:vertical;min-height:50px;}
     </div>
   </div>
   <div class="sec-title">Efectivo vs Mercado Pago <span class="line"></span></div>
-  <div style="font-size:11px;opacity:.8;line-height:1.6;margin-bottom:8px">
-    Contá lo que tenés hoy en cada cuenta y anotalo acá. De ahí en adelante, cada venta,
-    compra y gasto que cargues con su medio se suma o resta a la cuenta que corresponda.
-    No hace falta tocar nada de lo viejo.
-  </div>
-  <div class="form-row">
-    <div><label>💵 Tengo hoy en efectivo $</label><input type="number" id="saldoIniEf" placeholder="0"></div>
-    <div><label>📱 Tengo hoy en Mercado Pago $</label><input type="number" id="saldoIniMp" placeholder="0"></div>
-  </div>
-  <button class="btn btn-primary" onclick="guardarSaldosArranque()">💾 GUARDAR SALDOS DE ARRANQUE</button>
-  <table class="tabla" style="margin-top:10px"><thead><tr><th>Concepto</th><th>💵 Efectivo</th><th>📱 Mercado Pago</th></tr></thead>
+  <table class="tabla"><thead><tr><th>Concepto</th><th>💵 Efectivo</th><th>📱 Mercado Pago</th></tr></thead>
   <tbody id="tbodyMedios"></tbody></table>
   <div id="avisoSinMedio"></div>
 
@@ -675,13 +665,17 @@ textarea{resize:vertical;min-height:50px;}
 <div id="panel-config" class="panel">
   <div class="config-section">
     <h4>💼 Datos del Negocio</h4>
-    <div class="form-row one"><div><label>Capital Inicial $</label><input type="number" id="cfgCapital" placeholder="cargando…"></div></div>
+    <div class="form-row one"><div><label>Capital Inicial $ (total)</label><input type="number" id="cfgCapital" placeholder="cargando…" oninput="previewReparto()"></div></div>
     <div class="form-row one">
-      <div><label>Adelantos / Retiros $</label><input type="number" id="cfgAdelantos" placeholder="0"></div>
+      <div><label>…de eso, cuánto está en Mercado Pago $</label><input type="number" id="cfgCapitalMp" placeholder="0" oninput="previewReparto()"></div>
     </div>
-    <div style="font-size:10px;opacity:.6;margin:-2px 0 8px">
-      El reparto entre efectivo y Mercado Pago se hace desde la pestaña Caja, con los saldos de arranque.
+    <div class="form-row one">
+      <div><label>Adelantos / Retiros $ (total)</label><input type="number" id="cfgAdelantos" placeholder="0" oninput="previewReparto()"></div>
     </div>
+    <div class="form-row one">
+      <div><label>…de eso, cuánto salió de Mercado Pago $</label><input type="number" id="cfgAdelantosMp" placeholder="0" oninput="previewReparto()"></div>
+    </div>
+    <div id="repartoPreview" style="font-size:11px;opacity:.8;margin:-2px 0 8px;line-height:1.6"></div>
     <div style="font-size:10px;opacity:.6;margin:0 0 8px;line-height:1.5">
       Referencia histórica del Excel al 3-4-2026: capital $678.000, adelantos $15.000, caja $439.076.
     </div>
@@ -1071,12 +1065,12 @@ async function sbGetStrict(table, extra=''){
 // ESCRITURAS CONFIABLES
 // Antes, si el guardado fallaba, la app seguia como si nada: la venta
 // aparecia en pantalla, el formulario se limpiaba y a los 30 segundos el
-// refresco automatico la hacia desaparecer. Ahora toda escritura que no
-// llega a Supabase queda en una cola guardada en el telefono y se reintenta
-// sola hasta que entra.
+// refresco automatico la hacia desaparecer. Ahora lo que no llega a Supabase
+// queda guardado en el telefono y se reintenta solo hasta que entra.
 // ══════════════════════════════════════════════════════════════
 const COLA_KEY = 'adn_pendientes_v1';
 let colaPend = [];
+
 // Marca de "estoy guardando". Guarda la hora en lugar de un si/no: si alguna
 // vez una excepcion impidiera apagarla, caduca sola a los 20 segundos en vez
 // de dejar el refresco automatico bloqueado para siempre.
@@ -1097,11 +1091,11 @@ function pintarPendientes(){
   if(!el) return;
   if(!colaPend.length){ el.style.display = 'none'; return; }
   el.style.display = 'block';
-  el.textContent = `\u{23F3} ${colaPend.length} cambio(s) sin guardar — reintentando`;
+  el.textContent = `Hay ${colaPend.length} cambio(s) sin subir — los reintento solo`;
 }
 
-// Genera ids que no pueden chocar aunque se toque el boton dos veces seguidas
-// ni al guardar varias filas dentro del mismo milisegundo.
+// Ids que no pueden chocar ni con doble toque ni con varias filas en el mismo
+// milisegundo. Antes eran Date.now() pelado y el segundo toque pisaba al primero.
 let _seqId = 0;
 function nuevoId(){
   _seqId = (_seqId + 1) % 100000;
@@ -1128,18 +1122,16 @@ async function sbWrite(op, encolarSiFalla){
     // 4xx que no sea 408/429 es un dato mal formado: reintentarlo no sirve
     const reintentable = r.status >= 500 || r.status === 408 || r.status === 429;
     if(!reintentable){
-      toast(`⚠ No se pudo guardar (${r.status}): ${err.slice(0,70)}`);
+      toast(`No se pudo guardar (${r.status}): ${err.slice(0,70)}`);
       return 'falla';
     }
   } catch(e){
     console.error(`sbWrite ${op.m} [${op.t}] red:`, e);
   }
   if(encolarSiFalla === false) return 'reintentar';
-  {
-    colaPend.push(op);
-    persistirCola();
-    toast('\u{1F4F6} Sin conexión — lo guardo y lo subo solo');
-  }
+  colaPend.push(op);
+  persistirCola();
+  toast('Sin conexión — lo guardo y lo subo solo');
   return 'encolado';
 }
 
@@ -1170,13 +1162,13 @@ async function procesarCola(){
     if(res === 'reintentar') quedan.push(op);
     else if(res === 'falla') descartadas++;   // dato invalido: no reintentar para siempre
   }
-  if(descartadas) toast(`No se pudieron guardar ${descartadas} cambio(s). Revisá el historial`);
   const antes = colaPend.length;
   colaPend = quedan;
   persistirCola();
   procesando = false;
-  if(quedan.length < antes){
-    toast(`✅ ${antes - quedan.length} cambio(s) pendientes subidos`);
+  if(descartadas) toast(`No se pudieron guardar ${descartadas} cambio(s). Revisá el historial`);
+  if(quedan.length < antes - descartadas || (antes - quedan.length - descartadas) > 0){
+    toast(`${antes - quedan.length - descartadas} cambio(s) pendientes subidos`);
     refrescarVistas();
   }
 }
@@ -1190,7 +1182,7 @@ async function procesarCola(){
 // con la pantalla a medio cargar escribia los valores por defecto del codigo.
 let datosOk = false;
 
-let appData = { ventas:[], compras:[], gastos:[], productosCustom:[], ubicaciones:[], movimientos:[], duenos:[], consumos:[], movCaja:[], config:{ capital:0, adelantos:0, saldoIniEf:0, saldoIniMp:0, saldoCaja:0, stockThreshold:3 } };
+let appData = { ventas:[], compras:[], gastos:[], productosCustom:[], ubicaciones:[], movimientos:[], duenos:[], consumos:[], movCaja:[], config:{ capital:0, capitalMp:0, adelantos:0, adelantosMp:0, saldoCaja:0, stockThreshold:3 } };
 let _cargando = false;
 
 function mostrarCargando(msg='Cargando...'){
@@ -1291,9 +1283,9 @@ async function cargarDatos() {
       const cfg = cfgArr[0];
       appData.config = {
         capital: cfg.capital != null ? cfg.capital : 0,
+        capitalMp: cfg.capital_mp != null ? cfg.capital_mp : 0,
         adelantos: cfg.adelantos != null ? cfg.adelantos : 0,
-        saldoIniEf: cfg.saldo_ini_efectivo != null ? cfg.saldo_ini_efectivo : 0,
-        saldoIniMp: cfg.saldo_ini_mp != null ? cfg.saldo_ini_mp : 0,
+        adelantosMp: cfg.adelantos_mp != null ? cfg.adelantos_mp : 0,
         saldoCaja: cfg.saldo_caja != null ? cfg.saldo_caja : 0,
         stockThreshold: cfg.stock_threshold != null ? cfg.stock_threshold : 3,
         historicos_cargados: cfg.historicos_cargados || false
@@ -1324,9 +1316,10 @@ async function cargarDatos() {
   }
 
   document.getElementById('cfgCapital').value        = appData.config.capital;
+  document.getElementById('cfgCapitalMp').value      = appData.config.capitalMp;
   document.getElementById('cfgAdelantos').value      = appData.config.adelantos;
-  document.getElementById('saldoIniEf').value        = appData.config.saldoIniEf;
-  document.getElementById('saldoIniMp').value        = appData.config.saldoIniMp;
+  document.getElementById('cfgAdelantosMp').value    = appData.config.adelantosMp;
+  previewReparto();
   document.getElementById('cfgSaldoCaja').value      = appData.config.saldoCaja;
   document.getElementById('cfgStockThreshold').value = appData.config.stockThreshold;
   ocultarCargando();
@@ -1378,9 +1371,9 @@ async function guardarConfigSupa(){
   await sbUpsert('config',{
     id:'main',
     capital: appData.config.capital,
+    capital_mp: appData.config.capitalMp,
     adelantos: appData.config.adelantos,
-    saldo_ini_efectivo: appData.config.saldoIniEf,
-    saldo_ini_mp: appData.config.saldoIniMp,
+    adelantos_mp: appData.config.adelantosMp,
     saldo_caja: appData.config.saldoCaja,
     stock_threshold: appData.config.stockThreshold
   });
@@ -1422,12 +1415,12 @@ async function verHistorialConfig(){
 // Refrescar datos en background (para sincronización entre celulares)
 async function refrescarDatos(){
   // Si hay cambios sin subir, NO traigo nada del servidor: pisaria lo que
-  // todavia no llego y el usuario veria desaparecer su propia carga.
+  // todavia no llego y verias desaparecer tu propia carga.
   if(colaPend.length){ procesarCola(); return; }
   if(estaGuardando()) return;
   try {
     // Mismo orden y mismo limite que la carga inicial. Antes esta usaba 'asc'
-    // y la inicial 'desc': con mas de 2000 filas cada una traia un conjunto
+    // y la inicial 'desc': pasadas las 2000 filas cada una traia un conjunto
     // distinto y la caja cambiaba sola a los 30 segundos.
     const [ventas, compras, gastos, custom, cfgArr, movCj] = await Promise.all([
       sbGet('ventas','order=created_at.desc&limit=5000'),
@@ -1437,14 +1430,16 @@ async function refrescarDatos(){
       sbGet('config','id=eq.main'),
       sbGet('mov_caja','order=fecha.desc&limit=2000'),
     ]);
+    // Config y movimientos tambien, para que si otro dueño cambia el capital
+    // o pasa plata de una cuenta a otra, lo veas sin recargar la pagina.
     if(cfgArr && cfgArr.length){
-      const cfg = cfgArr[0];
-      appData.config.capital    = cfg.capital    != null ? cfg.capital    : appData.config.capital;
-      appData.config.adelantos  = cfg.adelantos  != null ? cfg.adelantos  : appData.config.adelantos;
-      appData.config.saldoIniEf = cfg.saldo_ini_efectivo != null ? cfg.saldo_ini_efectivo : appData.config.saldoIniEf;
-      appData.config.saldoIniMp = cfg.saldo_ini_mp       != null ? cfg.saldo_ini_mp       : appData.config.saldoIniMp;
+      const c = cfgArr[0];
+      if(c.capital      != null) appData.config.capital     = c.capital;
+      if(c.capital_mp   != null) appData.config.capitalMp    = c.capital_mp;
+      if(c.adelantos    != null) appData.config.adelantos    = c.adelantos;
+      if(c.adelantos_mp != null) appData.config.adelantosMp  = c.adelantos_mp;
     }
-    if(movCj && movCj.length >= 0) appData.movCaja = (movCj||[]).map(function(m){
+    appData.movCaja = (movCj||[]).map(function(m){
       return {id:m.id, fecha:m.fecha, tipo:m.tipo||'transferencia', monto:parseFloat(m.monto)||0,
               origen:m.origen||null, destino:m.destino||null, notas:m.notas||''};
     });
@@ -1460,16 +1455,16 @@ async function refrescarDatos(){
     refrescarVistas();
   } catch(e){ console.error('refrescarDatos:', e); }
 }
-
-// Si la tabla llego al tope que pide la app, los numeros estan incompletos
-// y hay que avisarlo en vez de mostrar un total que miente.
+// Si la tabla llego al tope que pide la app, los totales estan incompletos
+// y hay que avisarlo en vez de mostrar un numero que miente.
 let _topeAvisado = false;
 function avisarSiTope(cantidad, tope, nombre){
   if(cantidad < tope || _topeAvisado) return;
   _topeAvisado = true;
   const el = document.getElementById('alertasContainer');
-  if(el) el.innerHTML += `<div class="alerta alerta-roja">\u26A0 Hay ${tope} o más ${nombre} y la app trae como máximo ${tope}. Los totales pueden estar incompletos: avisame para paginar la carga.</div>`;
+  if(el) el.innerHTML += `<div class="alerta alerta-roja">Hay ${tope} o más ${nombre} y la app trae como máximo ${tope}. Los totales pueden estar incompletos: avisame para paginar la carga.</div>`;
 }
+
 // Auto-refresh cada 30 segundos
 setInterval(refrescarDatos, 30000);
 // Reintento de lo que quedo sin subir
@@ -1498,8 +1493,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // Todo lo que depende de ventas, compras o gastos. Se llama despues de
-// CUALQUIER operacion que mueva plata, asi la caja no queda esperando al
-// refresco automatico para mostrar el cambio.
+// CUALQUIER operacion que mueva plata, asi la caja no queda esperando el
+// refresco automatico de 30 segundos para mostrar el cambio.
 function refrescarVistas(){
   try {
     renderDashboard();
@@ -1819,7 +1814,7 @@ function calcularTotalCompra(){const c=parseFloat(document.getElementById('compr
 // VENTAS
 // ══════════════════════════════════════════════════════════════
 async function guardarVenta(){
-  // Un segundo toque mientras se esta guardando crearia una venta duplicada
+  // Un segundo toque mientras se esta guardando crearia un duplicado
   if(estaGuardando()){ toast('Esperá, estoy guardando…'); return; }
   const fecha   = document.getElementById('ventaFecha').value;
   const cliente = document.getElementById('ventaCliente').value.trim();
@@ -1864,9 +1859,9 @@ async function guardarVenta(){
   if(montoCobradoTotal !== null){
     let acum = 0;
     for(let k=0; k<items.length; k++){
-      const totalItem = items[k].cantidad * items[k].precio;
+      const ti = items[k].cantidad * items[k].precio;
       if(k === items.length-1) mcPorItem.push(montoCobradoTotal - acum);
-      else { const p = Math.round(montoCobradoTotal * (totalItem/totalVenta)); mcPorItem.push(p); acum += p; }
+      else { const p = Math.round(montoCobradoTotal * (ti/totalVenta)); mcPorItem.push(p); acum += p; }
     }
   }
 
@@ -1893,7 +1888,7 @@ async function guardarVenta(){
   const okVenta = await sbUpsert('ventas', filasDb);
   guardandoDesde = 0;
   if(okVenta === 'falla'){
-    toast('\u26A0 No se pudo registrar la venta. No la doy por cargada: revisá y probá de nuevo');
+    toast('No se pudo registrar la venta. No la doy por cargada: revisá y probá de nuevo');
     return;
   }
   filasMem.forEach(function(f){ appData.ventas.push(f); });
@@ -2049,7 +2044,7 @@ async function confirmarCobro(){
     v.cobrada = antes.cobrada; v.montoCobrado = antes.montoCobrado;
     refrescarVistas();
   } else {
-    toast(res === 'ok' ? '✅ Venta marcada como cobrada' : '⏳ Cobro guardado, se sube cuando haya señal');
+    toast(res === 'ok' ? '✅ Venta marcada como cobrada' : 'Cobro guardado, se sube cuando haya señal');
   }
 }
 function renderVentasPendientes(){
@@ -2083,7 +2078,7 @@ function renderVentasPendientes(){
 // COMPRAS
 // ══════════════════════════════════════════════════════════════
 async function guardarCompra(){
-  // Un segundo toque mientras se esta guardando crearia una compra duplicada
+  // Un segundo toque mientras se esta guardando crearia un duplicado
   if(estaGuardando()){ toast('Esperá, estoy guardando…'); return; }
   const fecha=document.getElementById('compraFecha').value,
         proveedor=document.getElementById('compraProveedor').value.trim(),
@@ -2099,10 +2094,7 @@ async function guardarCompra(){
   guardandoDesde = Date.now();
   const okC = await sbUpsert('compras',{id,fecha,proveedor,producto,cantidad,costo_unit:costo,total:cantidad*costo,notas,historica:false,ubicacion_id:ubicacionIdC,medio:medioC});
   guardandoDesde = 0;
-  if(okC === 'falla'){
-    toast('\u26A0 No se pudo registrar la compra. Revisá y probá de nuevo');
-    return;
-  }
+  if(okC === 'falla'){ toast('No se pudo registrar la compra. Revisá y probá de nuevo'); return; }
   appData.compras.push({id,fecha,proveedor,producto,cantidad,costoUnit:costo,total:cantidad*costo,notas,historica:false,ubicacionId:ubicacionIdC,medio:medioC});
 
   // Actualizar costo del producto automáticamente
@@ -2283,7 +2275,7 @@ function calcularTotalGasto(){
 }
 
 async function guardarGasto(){
-  // Un segundo toque mientras se esta guardando crearia un gasto duplicado
+  // Un segundo toque mientras se esta guardando crearia un duplicado
   if(estaGuardando()){ toast('Esperá, estoy guardando…'); return; }
   const fecha       = document.getElementById('gastoFecha').value;
   const tipo        = document.getElementById('gastoTipo').value;
@@ -2300,10 +2292,7 @@ async function guardarGasto(){
   guardandoDesde = Date.now();
   const okG = await sbUpsert('gastos',{id,fecha,tipo,descripcion,monto,pagado,notas,medio:medioG});
   guardandoDesde = 0;
-  if(okG === 'falla'){
-    toast('\u26A0 No se pudo registrar el gasto. Revisá y probá de nuevo');
-    return;
-  }
+  if(okG === 'falla'){ toast('No se pudo registrar el gasto. Revisá y probá de nuevo'); return; }
   appData.gastos.push({ id, fecha, tipo, descripcion, monto, pagado, notas, medio:medioG });
 
   document.getElementById('gastoDescripcion').value = '';
@@ -2394,11 +2383,14 @@ function nombreMedio(m){
 
 function saldosPorMedio(){
   const cfg = appData.config;
-  // Punto de partida: lo que Mariano contó que tiene en cada cuenta.
-  // Todo lo anterior a eso queda absorbido ahí y no hace falta etiquetarlo.
+  const capTot  = parseFloat(cfg.capital)||0;
+  const capMp   = parseFloat(cfg.capitalMp)||0;
+  const adelTot = parseFloat(cfg.adelantos)||0;
+  const adelMp  = parseFloat(cfg.adelantosMp)||0;
+
   const r = {
-    efectivo:    {inicio: parseFloat(cfg.saldoIniEf)||0, cobrado:0, compras:0, gastos:0, movs:0},
-    mercadopago: {inicio: parseFloat(cfg.saldoIniMp)||0, cobrado:0, compras:0, gastos:0, movs:0}
+    efectivo:    {capital: capTot-capMp, cobrado:0, compras:0, gastos:0, movs:0, adelantos: adelTot-adelMp},
+    mercadopago: {capital: capMp,        cobrado:0, compras:0, gastos:0, movs:0, adelantos: adelMp}
   };
   const sin = {cobrado:0, compras:0, gastos:0};
 
@@ -2427,7 +2419,7 @@ function saldosPorMedio(){
 
   MEDIOS.forEach(function(k){
     const x = r[k];
-    x.saldo = x.inicio + x.cobrado - x.compras - x.gastos + x.movs;
+    x.saldo = x.capital + x.cobrado - x.compras - x.gastos + x.movs - x.adelantos;
   });
   const enMano = componentesCaja().enMano;
   r.sinAsignar = {cobrado:sin.cobrado, compras:sin.compras, gastos:sin.gastos,
@@ -2445,11 +2437,12 @@ function renderMedios(){
   document.getElementById('cajaMPSub').textContent       = `cobrado ${formatPeso(mp.cobrado)}`;
 
   const filas = [
-    ['Saldo de arranque',  ef.inicio,   mp.inicio],
-    ['(+) Cobrado desde entonces', ef.cobrado, mp.cobrado],
+    ['Capital inicial',    ef.capital,  mp.capital],
+    ['(+) Cobrado',        ef.cobrado,  mp.cobrado],
     ['(-) Compras',       -ef.compras, -mp.compras],
     ['(-) Gastos pagados', -ef.gastos,  -mp.gastos],
     ['(±) Pasajes entre cuentas', ef.movs, mp.movs],
+    ['(-) Adelantos',     -ef.adelantos, -mp.adelantos],
   ];
   let html = '';
   filas.forEach(function(f){
@@ -2464,57 +2457,110 @@ function renderMedios(){
   document.getElementById('tbodyMedios').innerHTML = html;
 
   const aviso = document.getElementById('avisoSinMedio');
-  const conMedio = appData.ventas.filter(function(v){ return v.medio; }).length
+  if(Math.abs(sa.saldo) > 1){
+    const nV = appData.ventas.filter(function(v){ return !v.medio && (v.cobrada || v.montoCobrado>0); }).length;
+    const nC = appData.compras.filter(function(c){ return !c.medio; }).length;
+    const nG = (appData.gastos||[]).filter(function(g){ return g.pagado && !g.medio; }).length;
+    aviso.innerHTML = `<div class="alerta" style="margin-top:8px">\u{1F4CC} Quedan <strong>${formatPeso(sa.saldo)}</strong> sin asignar a ninguna cuenta: `
+      + `${nV} venta(s), ${nC} compra(s) y ${nG} gasto(s). `
+      + `Los dos saldos de arriba más esto da la plata en mano total, así que la cuenta cierra igual.<br>`
+      + `<span style="font-size:10px;opacity:.75">Los botones te muestran cuánta plata y qué fechas van a mover antes de confirmar. Para asignar unas pocas, editalas desde Historial.</span><br><br>`
+      + `<button class="btn btn-secondary" onclick="asignarMedioViejos('efectivo')" style="margin-top:4px">Marcar todo eso como 💵 Efectivo</button>`
+      + `<button class="btn btn-secondary" onclick="asignarMedioViejos('mercadopago')" style="margin-top:4px">Marcar todo como 📱 Mercado Pago</button></div>`;
+  } else {
+    aviso.innerHTML = `<div class="alerta" style="margin-top:8px">✅ No queda plata sin asignar: todo está repartido entre efectivo y Mercado Pago.</div>`;
+  }
+  // Salida de emergencia, por si una asignacion masiva sale mal
+  const marcados = appData.ventas.filter(function(v){ return v.medio; }).length
                  + appData.compras.filter(function(c){ return c.medio; }).length
                  + (appData.gastos||[]).filter(function(g){ return g.medio; }).length;
-  let av = '';
-  if(Math.abs(sa.saldo) > 1){
-    av += `<div class="alerta" style="margin-top:8px">\u{1F4CC} <strong>${formatPeso(sa.saldo)}</strong> del total no está en ninguna de las dos cuentas de arriba. `
-       + `Es todo lo de antes del arranque más el capital y los adelantos. Los dos saldos más esto dan la plata en mano, así que la cuenta cierra. `
-       + `Si contás tu efectivo y tu Mercado Pago de hoy y los ponés arriba, este número se va a cero solo.</div>`;
+  if(marcados > 0){
+    aviso.innerHTML += `<div style="font-size:10px;opacity:.6;margin-top:6px">`
+      + `${marcados} registro(s) tienen medio asignado. `
+      + `<a href="javascript:void(0)" onclick="limpiarMedios()" style="color:var(--verde3)">Desmarcar todos y empezar de nuevo</a></div>`;
   }
-  if(conMedio > 0){
-    av += `<div class="alerta" style="margin-top:8px">\u{1F3F7} Hay <strong>${conMedio}</strong> registro(s) con medio asignado. `
-       + `Si marcaste de más por error, podés limpiarlos todos de una y volver a empezar:<br>`
-       + `<button class="btn btn-secondary" onclick="limpiarMedios()" style="margin-top:6px">\u{21A9} Desmarcar todo y volver a Sin asignar</button></div>`;
-  }
-  aviso.innerHTML = av;
 }
 
-// Saca el medio de todos los registros que lo tengan: deshace una asignacion
-// masiva hecha por error y deja todo como antes.
+// Asigna un medio a todo lo viejo que no lo tenga. Pide confirmacion porque
+// toca muchos registros de una sola vez.
+// Rango de fechas de un conjunto de registros, para mostrarlo antes de confirmar
+function rangoFechas(arr){
+  const f = arr.map(function(x){ return (x.fecha||'').slice(0,10); }).filter(Boolean).sort();
+  if(!f.length) return 'sin fecha';
+  const dmy = function(x){ return x.slice(8,10)+'/'+x.slice(5,7)+'/'+x.slice(0,4); };
+  return f[0] === f[f.length-1] ? dmy(f[0]) : `${dmy(f[0])} al ${dmy(f[f.length-1])}`;
+}
+
+// Asigna un medio a todo lo que no lo tenga. Antes confirmaba con un conteo
+// seco; ahora dice cuanta plata mueve y de que fechas, que es lo que hace
+// falta para darse cuenta de que va a tocar media historia del negocio.
+async function asignarMedioViejos(medio){
+  const vs = appData.ventas.filter(function(v){ return !v.medio && (v.cobrada || v.montoCobrado>0); });
+  const cs = appData.compras.filter(function(c){ return !c.medio; });
+  const gs = (appData.gastos||[]).filter(function(g){ return g.pagado && !g.medio; });
+  const n = vs.length + cs.length + gs.length;
+  if(!n){ toast('No hay nada sin asignar'); return; }
+
+  const mv = vs.reduce(function(a,v){ return a + (v.cobrada ? (parseFloat(v.total)||0) : (parseFloat(v.montoCobrado)||0)); }, 0);
+  const mc = cs.reduce(function(a,c){ return a + (parseFloat(c.total)||0); }, 0);
+  const mg = gs.reduce(function(a,g){ return a + (parseFloat(g.monto)||0); }, 0);
+  const nombre = medio === 'efectivo' ? 'EFECTIVO' : 'MERCADO PAGO';
+  const impacto = mv - mc - mg;
+  const todas = vs.concat(cs, gs);
+
+  const texto =
+    `Vas a mandar a ${nombre} TODO lo que no tiene medio asignado:\n\n` +
+    `• ${vs.length} ventas cobradas — ${formatPeso(mv)}\n` +
+    `• ${cs.length} compras — ${formatPeso(mc)}\n` +
+    `• ${gs.length} gastos pagados — ${formatPeso(mg)}\n\n` +
+    `Fechas: ${rangoFechas(todas)}\n\n` +
+    `El saldo de ${nombre} va a cambiar en ${impacto >= 0 ? '+' : '-'}${formatPeso(Math.abs(impacto))}.\n\n` +
+    `OJO: esto toca ${n} registros de una sola vez, incluida la historia vieja. ` +
+    `Si solo querés asignar unas pocas, cerrá esto y editalas una por una desde Historial.\n\n` +
+    `¿Confirmás?`;
+  if(!confirm(texto)) return;
+
+  mostrarCargando(`Asignando 0/${n}…`);
+  let hechos = 0, fallados = 0;
+  for(const v of vs){
+    const r = await sbUpdate('ventas', v.id, {medio:medio});
+    if(r === 'falla') fallados++; else v.medio = medio;
+    hechos++; if(hechos % 20 === 0) mostrarCargando(`Asignando ${hechos}/${n}…`);
+  }
+  for(const c of cs){
+    const r = await sbUpdate('compras', c.id, {medio:medio});
+    if(r === 'falla') fallados++; else c.medio = medio;
+    hechos++; if(hechos % 20 === 0) mostrarCargando(`Asignando ${hechos}/${n}…`);
+  }
+  for(const g of gs){
+    const r = await sbUpdate('gastos', g.id, {medio:medio});
+    if(r === 'falla') fallados++; else g.medio = medio;
+    hechos++; if(hechos % 20 === 0) mostrarCargando(`Asignando ${hechos}/${n}…`);
+  }
+  ocultarCargando();
+  toast(fallados ? `Asignados ${n-fallados}, fallaron ${fallados}` : `✅ ${n} registro(s) asignados`);
+  refrescarVistas();
+}
+
+// Deshace una asignacion masiva: saca el medio de todo lo que lo tenga.
 async function limpiarMedios(){
   const vs = appData.ventas.filter(function(v){ return v.medio; });
   const cs = appData.compras.filter(function(c){ return c.medio; });
   const gs = (appData.gastos||[]).filter(function(g){ return g.medio; });
   const n = vs.length + cs.length + gs.length;
   if(!n){ toast('No hay nada marcado'); return; }
-  if(!confirm(`Vas a borrar el medio de pago de ${n} registro(s): ${vs.length} ventas, ${cs.length} compras, ${gs.length} gastos.\n\nTodos vuelven a "Sin asignar". Los importes, fechas y clientes no se tocan.\n\n¿Confirmás?`)) return;
+  if(!confirm(`Vas a borrar el medio de pago de ${n} registro(s): ${vs.length} ventas, ${cs.length} compras, ${gs.length} gastos.\n\nTodos vuelven a "Sin asignar". Importes, fechas y clientes no se tocan.\n\n¿Confirmás?`)) return;
   mostrarCargando('Limpiando…');
   let hechos = 0;
-  for(const v of vs){ v.medio = null; await sbUpdate('ventas',  v.id, {medio:null}); hechos++; if(hechos%25===0) mostrarCargando(`Limpiando… ${hechos}/${n}`); }
-  for(const c of cs){ c.medio = null; await sbUpdate('compras', c.id, {medio:null}); hechos++; if(hechos%25===0) mostrarCargando(`Limpiando… ${hechos}/${n}`); }
-  for(const g of gs){ g.medio = null; await sbUpdate('gastos',  g.id, {medio:null}); hechos++; if(hechos%25===0) mostrarCargando(`Limpiando… ${hechos}/${n}`); }
+  for(const v of vs){ const r = await sbUpdate('ventas',  v.id, {medio:null}); if(r!=='falla') v.medio = null; hechos++; if(hechos%20===0) mostrarCargando(`Limpiando ${hechos}/${n}…`); }
+  for(const c of cs){ const r = await sbUpdate('compras', c.id, {medio:null}); if(r!=='falla') c.medio = null; hechos++; if(hechos%20===0) mostrarCargando(`Limpiando ${hechos}/${n}…`); }
+  for(const g of gs){ const r = await sbUpdate('gastos',  g.id, {medio:null}); if(r!=='falla') g.medio = null; hechos++; if(hechos%20===0) mostrarCargando(`Limpiando ${hechos}/${n}…`); }
   ocultarCargando();
-  toast(`\u{21A9} ${n} registro(s) desmarcados`);
-  renderCaja();
-}
-
-// Guarda los saldos que Mariano contó en cada cuenta
-async function guardarSaldosArranque(){
-  if(!datosOk){ toast('⚠️ Los datos no se cargaron. Recargá la página'); return; }
-  const ef = parseFloat(document.getElementById('saldoIniEf').value);
-  const mp = parseFloat(document.getElementById('saldoIniMp').value);
-  if(!isFinite(ef) || !isFinite(mp)){ toast('⚠️ Completá los dos saldos (poné 0 si una cuenta está vacía)'); return; }
-  appData.config.saldoIniEf = ef;
-  appData.config.saldoIniMp = mp;
-  await guardarConfigSupa();
-  renderCaja();
-  toast('✅ Saldos de arranque guardados');
+  toast(`${n} registro(s) desmarcados`);
+  refrescarVistas();
 }
 
 async function guardarMovCaja(){
-  // Un segundo toque mientras se esta guardando crearia un movimiento duplicado
   if(estaGuardando()){ toast('Esperá, estoy guardando…'); return; }
   const fecha  = document.getElementById('movCajaFecha').value || fechaHoyLocal();
   const monto  = parseFloat(document.getElementById('movCajaMonto').value)||0;
@@ -2561,6 +2607,22 @@ function renderMovCaja(){
       + `<td><strong>${formatPeso(m.monto)}</strong></td>`
       + `<td><button class="btn-icon" onclick="eliminarMovCaja('${m.id}')">🗑</button></td></tr>`;
   }).join('');
+}
+
+// Muestra como queda repartido el capital mientras se escribe en Config
+function previewReparto(){
+  const el = document.getElementById('repartoPreview');
+  if(!el) return;
+  const cap  = parseFloat(document.getElementById('cfgCapital').value)||0;
+  const capMp= parseFloat(document.getElementById('cfgCapitalMp').value)||0;
+  const ad   = parseFloat(document.getElementById('cfgAdelantos').value)||0;
+  const adMp = parseFloat(document.getElementById('cfgAdelantosMp').value)||0;
+  if(capMp > cap){
+    el.innerHTML = `<span style="color:#e57373">⚠️ La parte en Mercado Pago (${formatPeso(capMp)}) no puede ser mayor al capital total (${formatPeso(cap)}).</span>`;
+    return;
+  }
+  el.innerHTML = `Capital: <strong>${formatPeso(cap-capMp)}</strong> en efectivo + <strong>${formatPeso(capMp)}</strong> en Mercado Pago.<br>`
+    + `Adelantos: <strong>${formatPeso(ad-adMp)}</strong> del efectivo + <strong>${formatPeso(adMp)}</strong> de Mercado Pago.`;
 }
 
 function renderCaja(){
@@ -3043,6 +3105,7 @@ async function eliminarVenta(id){
   guardandoDesde = Date.now();
   const res = await sbDelete('ventas', id);
   guardandoDesde = 0;
+  // Si no se pudo borrar de verdad, la devuelvo a la lista
   if(res === 'falla' && copia){ appData.ventas.push(copia); refrescarVistas(); }
   else toast('🗑 Eliminada');
 }
@@ -3249,6 +3312,8 @@ function guardarConfig(){
     return;
   }
   const cap  = parseFloat(document.getElementById('cfgCapital').value);
+  const capMp  = parseFloat(document.getElementById('cfgCapitalMp').value);
+  const adelMp = parseFloat(document.getElementById('cfgAdelantosMp').value);
   const adel = parseFloat(document.getElementById('cfgAdelantos').value);
   const sal  = parseFloat(document.getElementById('cfgSaldoCaja').value);
   const umb  = parseInt(document.getElementById('cfgStockThreshold').value);
@@ -3262,7 +3327,12 @@ function guardarConfig(){
   if(Math.abs(cap-antes) > 1 && antes > 0){
     if(!confirm(`Vas a cambiar el capital inicial de ${formatPeso(antes)} a ${formatPeso(cap)}.\n\nEso mueve la plata en mano ${cap>antes?'para arriba':'para abajo'} en ${formatPeso(Math.abs(cap-antes))}.\n\n¿Confirmás?`)) return;
   }
+  const capMpOk  = isFinite(capMp)  ? capMp  : 0;
+  const adelMpOk = isFinite(adelMp) ? adelMp : 0;
+  if(capMpOk > cap){ toast('⚠️ La parte en Mercado Pago no puede ser mayor al capital total'); return; }
   appData.config.capital        = cap;
+  appData.config.capitalMp      = capMpOk;
+  appData.config.adelantosMp    = adelMpOk;
   appData.config.adelantos      = isFinite(adel) ? adel : appData.config.adelantos;
   appData.config.saldoCaja      = isFinite(sal)  ? sal  : appData.config.saldoCaja;
   appData.config.stockThreshold = isFinite(umb)  ? umb  : appData.config.stockThreshold;
