@@ -530,6 +530,8 @@ textarea{resize:vertical;min-height:50px;}
 </div>
 
 <!-- CAJA -->
+<div id="badgePendientes" style="display:none;position:fixed;bottom:12px;left:12px;right:12px;z-index:9999;background:#8d6e63;color:#fff;padding:9px 12px;border-radius:8px;font-size:12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.3)"></div>
+
 <div id="panel-caja" class="panel">
   <!-- KPIs destacados: plata en mano y potencial -->
   <div class="kpi-grid" style="margin-bottom:12px">
@@ -555,7 +557,17 @@ textarea{resize:vertical;min-height:50px;}
     </div>
   </div>
   <div class="sec-title">Efectivo vs Mercado Pago <span class="line"></span></div>
-  <table class="tabla"><thead><tr><th>Concepto</th><th>💵 Efectivo</th><th>📱 Mercado Pago</th></tr></thead>
+  <div style="font-size:11px;opacity:.8;line-height:1.6;margin-bottom:8px">
+    Contá lo que tenés hoy en cada cuenta y anotalo acá. De ahí en adelante, cada venta,
+    compra y gasto que cargues con su medio se suma o resta a la cuenta que corresponda.
+    No hace falta tocar nada de lo viejo.
+  </div>
+  <div class="form-row">
+    <div><label>💵 Tengo hoy en efectivo $</label><input type="number" id="saldoIniEf" placeholder="0"></div>
+    <div><label>📱 Tengo hoy en Mercado Pago $</label><input type="number" id="saldoIniMp" placeholder="0"></div>
+  </div>
+  <button class="btn btn-primary" onclick="guardarSaldosArranque()">💾 GUARDAR SALDOS DE ARRANQUE</button>
+  <table class="tabla" style="margin-top:10px"><thead><tr><th>Concepto</th><th>💵 Efectivo</th><th>📱 Mercado Pago</th></tr></thead>
   <tbody id="tbodyMedios"></tbody></table>
   <div id="avisoSinMedio"></div>
 
@@ -663,17 +675,13 @@ textarea{resize:vertical;min-height:50px;}
 <div id="panel-config" class="panel">
   <div class="config-section">
     <h4>💼 Datos del Negocio</h4>
-    <div class="form-row one"><div><label>Capital Inicial $ (total)</label><input type="number" id="cfgCapital" placeholder="cargando…" oninput="previewReparto()"></div></div>
+    <div class="form-row one"><div><label>Capital Inicial $</label><input type="number" id="cfgCapital" placeholder="cargando…"></div></div>
     <div class="form-row one">
-      <div><label>…de eso, cuánto está en Mercado Pago $</label><input type="number" id="cfgCapitalMp" placeholder="0" oninput="previewReparto()"></div>
+      <div><label>Adelantos / Retiros $</label><input type="number" id="cfgAdelantos" placeholder="0"></div>
     </div>
-    <div class="form-row one">
-      <div><label>Adelantos / Retiros $ (total)</label><input type="number" id="cfgAdelantos" placeholder="0" oninput="previewReparto()"></div>
+    <div style="font-size:10px;opacity:.6;margin:-2px 0 8px">
+      El reparto entre efectivo y Mercado Pago se hace desde la pestaña Caja, con los saldos de arranque.
     </div>
-    <div class="form-row one">
-      <div><label>…de eso, cuánto salió de Mercado Pago $</label><input type="number" id="cfgAdelantosMp" placeholder="0" oninput="previewReparto()"></div>
-    </div>
-    <div id="repartoPreview" style="font-size:11px;opacity:.8;margin:-2px 0 8px;line-height:1.6"></div>
     <div style="font-size:10px;opacity:.6;margin:0 0 8px;line-height:1.5">
       Referencia histórica del Excel al 3-4-2026: capital $678.000, adelantos $15.000, caja $439.076.
     </div>
@@ -1059,37 +1067,121 @@ async function sbGetStrict(table, extra=''){
   if(!r.ok) throw new Error(`sbGet ${table}: ${r.status} ${await r.text()}`);
   return r.json();
 }
-async function sbUpsert(table, row){
-  const r = await fetch(`${SUPA_URL}/rest/v1/${table}`, {
-    method:'POST',
-    headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,
-             'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
-    body: JSON.stringify(row)
-  });
-  if(!r.ok){
-    const err = await r.text();
-    console.error(`❌ sbUpsert [${table}]:`, r.status, err);
-    toast(`⚠️ Error al guardar (${r.status}): ${err.slice(0,80)}`);
-  }
-  return r;
+// ══════════════════════════════════════════════════════════════
+// ESCRITURAS CONFIABLES
+// Antes, si el guardado fallaba, la app seguia como si nada: la venta
+// aparecia en pantalla, el formulario se limpiaba y a los 30 segundos el
+// refresco automatico la hacia desaparecer. Ahora toda escritura que no
+// llega a Supabase queda en una cola guardada en el telefono y se reintenta
+// sola hasta que entra.
+// ══════════════════════════════════════════════════════════════
+const COLA_KEY = 'adn_pendientes_v1';
+let colaPend = [];
+// Marca de "estoy guardando". Guarda la hora en lugar de un si/no: si alguna
+// vez una excepcion impidiera apagarla, caduca sola a los 20 segundos en vez
+// de dejar el refresco automatico bloqueado para siempre.
+let guardandoDesde = 0;
+function estaGuardando(){ return guardandoDesde > 0 && (Date.now() - guardandoDesde) < 20000; }
+
+function cargarCola(){
+  try { colaPend = JSON.parse(localStorage.getItem(COLA_KEY) || '[]'); }
+  catch(e){ colaPend = []; }
+  if(!Array.isArray(colaPend)) colaPend = [];
 }
-async function sbDelete(table, id){
-  const r = await fetch(`${SUPA_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
-    method:'DELETE',
-    headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}
-  });
-  if(!r.ok) console.error(`❌ sbDelete [${table}]:`, r.status, await r.text());
-  return r;
+function persistirCola(){
+  try { localStorage.setItem(COLA_KEY, JSON.stringify(colaPend)); } catch(e){}
+  pintarPendientes();
+}
+function pintarPendientes(){
+  const el = document.getElementById('badgePendientes');
+  if(!el) return;
+  if(!colaPend.length){ el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.textContent = `\u{23F3} ${colaPend.length} cambio(s) sin guardar — reintentando`;
+}
+
+// Genera ids que no pueden chocar aunque se toque el boton dos veces seguidas
+// ni al guardar varias filas dentro del mismo milisegundo.
+let _seqId = 0;
+function nuevoId(){
+  _seqId = (_seqId + 1) % 100000;
+  return Date.now().toString() + '_' + _seqId.toString(36) + Math.random().toString(36).slice(2,6);
+}
+
+// Hace una escritura. Devuelve 'ok' (entro), 'encolado' (fallo transitorio, se
+// reintenta solo), 'reintentar' (fallo transitorio sin encolar, lo usa la cola)
+// o 'falla' (error definitivo: el dato esta mal y reintentar no sirve).
+async function sbWrite(op, encolarSiFalla){
+  const base = `${SUPA_URL}/rest/v1/${op.t}`;
+  const url = op.m === 'POST' ? base : `${base}?id=eq.${encodeURIComponent(op.id)}`;
+  const headers = {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY};
+  if(op.m !== 'DELETE'){
+    headers['Content-Type'] = 'application/json';
+    if(op.m === 'POST') headers['Prefer'] = 'resolution=merge-duplicates';
+  }
+  try {
+    const r = await fetch(url, {method:op.m, headers:headers,
+      body: op.m === 'DELETE' ? undefined : JSON.stringify(op.d)});
+    if(r.ok) return 'ok';
+    const err = await r.text();
+    console.error(`sbWrite ${op.m} [${op.t}]:`, r.status, err);
+    // 4xx que no sea 408/429 es un dato mal formado: reintentarlo no sirve
+    const reintentable = r.status >= 500 || r.status === 408 || r.status === 429;
+    if(!reintentable){
+      toast(`⚠ No se pudo guardar (${r.status}): ${err.slice(0,70)}`);
+      return 'falla';
+    }
+  } catch(e){
+    console.error(`sbWrite ${op.m} [${op.t}] red:`, e);
+  }
+  if(encolarSiFalla === false) return 'reintentar';
+  {
+    colaPend.push(op);
+    persistirCola();
+    toast('\u{1F4F6} Sin conexión — lo guardo y lo subo solo');
+  }
+  return 'encolado';
+}
+
+async function sbUpsert(table, row){
+  const filas = Array.isArray(row) ? row : [row];
+  const id = filas.length === 1 ? filas[0].id : null;
+  return await sbWrite({m:'POST', t:table, id:id, d:row, ts:Date.now()});
 }
 async function sbUpdate(table, id, data){
-  const r = await fetch(`${SUPA_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
-    method:'PATCH',
-    headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'},
-    body: JSON.stringify(data)
-  });
-  if(!r.ok) console.error(`❌ sbUpdate [${table}]:`, r.status, await r.text());
-  return r;
+  return await sbWrite({m:'PATCH', t:table, id:id, d:data, ts:Date.now()});
 }
+async function sbDelete(table, id){
+  return await sbWrite({m:'DELETE', t:table, id:id, d:null, ts:Date.now()});
+}
+
+// Reintenta lo pendiente. Las operaciones son idempotentes (el upsert usa el
+// mismo id, el patch y el delete apuntan a una fila concreta), asi que
+// repetirlas no duplica nada.
+let procesando = false;
+async function procesarCola(){
+  if(procesando || !colaPend.length) return;
+  if(navigator.onLine === false) return;
+  procesando = true;
+  const quedan = [];
+  let descartadas = 0;
+  for(const op of colaPend){
+    const res = await sbWrite(op, false);
+    if(res === 'reintentar') quedan.push(op);
+    else if(res === 'falla') descartadas++;   // dato invalido: no reintentar para siempre
+  }
+  if(descartadas) toast(`No se pudieron guardar ${descartadas} cambio(s). Revisá el historial`);
+  const antes = colaPend.length;
+  colaPend = quedan;
+  persistirCola();
+  procesando = false;
+  if(quedan.length < antes){
+    toast(`✅ ${antes - quedan.length} cambio(s) pendientes subidos`);
+    refrescarVistas();
+  }
+}
+
+
 
 // ══════════════════════════════════════════════════════════════
 // ESTADO GLOBAL
@@ -1098,7 +1190,7 @@ async function sbUpdate(table, id, data){
 // con la pantalla a medio cargar escribia los valores por defecto del codigo.
 let datosOk = false;
 
-let appData = { ventas:[], compras:[], gastos:[], productosCustom:[], ubicaciones:[], movimientos:[], duenos:[], consumos:[], movCaja:[], config:{ capital:0, capitalMp:0, adelantos:0, adelantosMp:0, saldoCaja:0, stockThreshold:3 } };
+let appData = { ventas:[], compras:[], gastos:[], productosCustom:[], ubicaciones:[], movimientos:[], duenos:[], consumos:[], movCaja:[], config:{ capital:0, adelantos:0, saldoIniEf:0, saldoIniMp:0, saldoCaja:0, stockThreshold:3 } };
 let _cargando = false;
 
 function mostrarCargando(msg='Cargando...'){
@@ -1123,9 +1215,9 @@ async function cargarDatos() {
   mostrarCargando('Conectando con la base de datos…');
   try {
     const [ventas, compras, gastos, custom, cfgArr, ubics, movs, dues, cons, movCj] = await Promise.all([
-      sbGetStrict('ventas','order=created_at.desc&limit=2000'),
-      sbGetStrict('compras','order=created_at.desc&limit=2000'),
-      sbGetStrict('gastos','order=created_at.desc&limit=1000'),
+      sbGetStrict('ventas','order=created_at.desc&limit=5000'),
+      sbGetStrict('compras','order=created_at.desc&limit=5000'),
+      sbGetStrict('gastos','order=created_at.desc&limit=2000'),
       sbGet('productos_custom','order=created_at.asc'),
       sbGetStrict('config','id=eq.main'),
       sbGet('ubicaciones','order=orden.asc'),
@@ -1156,6 +1248,7 @@ async function cargarDatos() {
     });
 
     console.log(`📦 Supabase devolvió: ${ventas.length} ventas, ${compras.length} compras, ${gastos.length} gastos`);
+    avisarSiTope(ventas.length, 5000, 'ventas');
     if(ventas.length > 0) console.log(`📅 Primera venta fecha raw:`, JSON.stringify(ventas[0].fecha), '| última:', JSON.stringify(ventas[ventas.length-1].fecha));
 
     // Siempre mapear, sin importar si viene vacío o no
@@ -1198,9 +1291,9 @@ async function cargarDatos() {
       const cfg = cfgArr[0];
       appData.config = {
         capital: cfg.capital != null ? cfg.capital : 0,
-        capitalMp: cfg.capital_mp != null ? cfg.capital_mp : 0,
         adelantos: cfg.adelantos != null ? cfg.adelantos : 0,
-        adelantosMp: cfg.adelantos_mp != null ? cfg.adelantos_mp : 0,
+        saldoIniEf: cfg.saldo_ini_efectivo != null ? cfg.saldo_ini_efectivo : 0,
+        saldoIniMp: cfg.saldo_ini_mp != null ? cfg.saldo_ini_mp : 0,
         saldoCaja: cfg.saldo_caja != null ? cfg.saldo_caja : 0,
         stockThreshold: cfg.stock_threshold != null ? cfg.stock_threshold : 3,
         historicos_cargados: cfg.historicos_cargados || false
@@ -1231,10 +1324,9 @@ async function cargarDatos() {
   }
 
   document.getElementById('cfgCapital').value        = appData.config.capital;
-  document.getElementById('cfgCapitalMp').value      = appData.config.capitalMp;
   document.getElementById('cfgAdelantos').value      = appData.config.adelantos;
-  document.getElementById('cfgAdelantosMp').value    = appData.config.adelantosMp;
-  previewReparto();
+  document.getElementById('saldoIniEf').value        = appData.config.saldoIniEf;
+  document.getElementById('saldoIniMp').value        = appData.config.saldoIniMp;
   document.getElementById('cfgSaldoCaja').value      = appData.config.saldoCaja;
   document.getElementById('cfgStockThreshold').value = appData.config.stockThreshold;
   ocultarCargando();
@@ -1286,9 +1378,9 @@ async function guardarConfigSupa(){
   await sbUpsert('config',{
     id:'main',
     capital: appData.config.capital,
-    capital_mp: appData.config.capitalMp,
     adelantos: appData.config.adelantos,
-    adelantos_mp: appData.config.adelantosMp,
+    saldo_ini_efectivo: appData.config.saldoIniEf,
+    saldo_ini_mp: appData.config.saldoIniMp,
     saldo_caja: appData.config.saldoCaja,
     stock_threshold: appData.config.stockThreshold
   });
@@ -1329,13 +1421,34 @@ async function verHistorialConfig(){
 
 // Refrescar datos en background (para sincronización entre celulares)
 async function refrescarDatos(){
+  // Si hay cambios sin subir, NO traigo nada del servidor: pisaria lo que
+  // todavia no llego y el usuario veria desaparecer su propia carga.
+  if(colaPend.length){ procesarCola(); return; }
+  if(estaGuardando()) return;
   try {
-    const [ventas, compras, gastos, custom] = await Promise.all([
-      sbGet('ventas','order=created_at.asc&limit=2000'),
-      sbGet('compras','order=created_at.asc&limit=2000'),
-      sbGet('gastos','order=created_at.asc&limit=1000'),
+    // Mismo orden y mismo limite que la carga inicial. Antes esta usaba 'asc'
+    // y la inicial 'desc': con mas de 2000 filas cada una traia un conjunto
+    // distinto y la caja cambiaba sola a los 30 segundos.
+    const [ventas, compras, gastos, custom, cfgArr, movCj] = await Promise.all([
+      sbGet('ventas','order=created_at.desc&limit=5000'),
+      sbGet('compras','order=created_at.desc&limit=5000'),
+      sbGet('gastos','order=created_at.desc&limit=2000'),
       sbGet('productos_custom','order=created_at.asc'),
+      sbGet('config','id=eq.main'),
+      sbGet('mov_caja','order=fecha.desc&limit=2000'),
     ]);
+    if(cfgArr && cfgArr.length){
+      const cfg = cfgArr[0];
+      appData.config.capital    = cfg.capital    != null ? cfg.capital    : appData.config.capital;
+      appData.config.adelantos  = cfg.adelantos  != null ? cfg.adelantos  : appData.config.adelantos;
+      appData.config.saldoIniEf = cfg.saldo_ini_efectivo != null ? cfg.saldo_ini_efectivo : appData.config.saldoIniEf;
+      appData.config.saldoIniMp = cfg.saldo_ini_mp       != null ? cfg.saldo_ini_mp       : appData.config.saldoIniMp;
+    }
+    if(movCj && movCj.length >= 0) appData.movCaja = (movCj||[]).map(function(m){
+      return {id:m.id, fecha:m.fecha, tipo:m.tipo||'transferencia', monto:parseFloat(m.monto)||0,
+              origen:m.origen||null, destino:m.destino||null, notas:m.notas||''};
+    });
+    avisarSiTope(ventas.length, 5000, 'ventas');
     if(ventas.length > 0)
       appData.ventas = ventas.map(v=>({id:v.id,fecha:v.fecha,cliente:v.cliente||'',producto:v.producto,cantidad:v.cantidad,precioUnit:v.precio_unit,total:v.total,cobrada:v.cobrada,montoCobrado:v.monto_cobrado||null,notas:v.notas||'',historica:v.historica,ubicacionId:v.ubicacion_id||null,medio:v.medio||null,creadoEn:v.created_at||null}));
     if(compras.length > 0)
@@ -1344,11 +1457,24 @@ async function refrescarDatos(){
       appData.gastos = gastos.map(g=>({id:g.id,fecha:g.fecha,tipo:g.tipo,descripcion:g.descripcion,monto:g.monto,pagado:g.pagado,notas:g.notas||'',medio:g.medio||null,creadoEn:g.created_at||null}));
     if(custom.length > 0)
       appData.productosCustom = custom.map(p=>({id:p.id,nombre:p.nombre,categoria:p.categoria,precioVenta:p.precio_venta,costoBase:p.costo_base,codigo:p.codigo||null,custom:true}));
-    renderDashboard(); renderStock(); renderCaja(); renderMargenes();
+    refrescarVistas();
   } catch(e){ console.error('refrescarDatos:', e); }
+}
+
+// Si la tabla llego al tope que pide la app, los numeros estan incompletos
+// y hay que avisarlo en vez de mostrar un total que miente.
+let _topeAvisado = false;
+function avisarSiTope(cantidad, tope, nombre){
+  if(cantidad < tope || _topeAvisado) return;
+  _topeAvisado = true;
+  const el = document.getElementById('alertasContainer');
+  if(el) el.innerHTML += `<div class="alerta alerta-roja">\u26A0 Hay ${tope} o más ${nombre} y la app trae como máximo ${tope}. Los totales pueden estar incompletos: avisame para paginar la carga.</div>`;
 }
 // Auto-refresh cada 30 segundos
 setInterval(refrescarDatos, 30000);
+// Reintento de lo que quedo sin subir
+setInterval(procesarCola, 15000);
+window.addEventListener('online', procesarCola);
 
 // ══════════════════════════════════════════════════════════════
 // INIT
@@ -1362,11 +1488,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('movCajaFecha').value = hoy;
   const d = new Date();
   document.getElementById('headerDate').textContent = d.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'}).replace(/^\w/,c=>c.toUpperCase());
+  cargarCola();
+  pintarPendientes();
   await cargarDatos();
   renderAll();
+  if(colaPend.length) procesarCola();
   // Foto diaria de la caja: si hoy no hay, la guarda. Permite comparar de un dia al otro.
   guardarSnapshotCaja();
 });
+
+// Todo lo que depende de ventas, compras o gastos. Se llama despues de
+// CUALQUIER operacion que mueva plata, asi la caja no queda esperando al
+// refresco automatico para mostrar el cambio.
+function refrescarVistas(){
+  try {
+    renderDashboard();
+    renderVentasPendientes();
+    renderUltimasCompras();
+    renderStock();
+    renderCaja();
+    renderMargenes();
+    renderHistorial();
+  } catch(e){ console.error('refrescarVistas:', e); }
+}
 
 function renderAll(){
   setRangoReporte('semana');
@@ -1675,6 +1819,8 @@ function calcularTotalCompra(){const c=parseFloat(document.getElementById('compr
 // VENTAS
 // ══════════════════════════════════════════════════════════════
 async function guardarVenta(){
+  // Un segundo toque mientras se esta guardando crearia una venta duplicada
+  if(estaGuardando()){ toast('Esperá, estoy guardando…'); return; }
   const fecha   = document.getElementById('ventaFecha').value;
   const cliente = document.getElementById('ventaCliente').value.trim();
   const estado  = document.getElementById('ventaCobrada').value;
@@ -1712,33 +1858,55 @@ async function guardarVenta(){
   let precioActualizado = false;
   let primerId = null;
 
+  // Reparto del cobro parcial: el ultimo item se lleva el resto, asi la suma
+  // de las partes da exactamente lo cobrado y no se escapa un peso por redondeo.
+  const mcPorItem = [];
+  if(montoCobradoTotal !== null){
+    let acum = 0;
+    for(let k=0; k<items.length; k++){
+      const totalItem = items[k].cantidad * items[k].precio;
+      if(k === items.length-1) mcPorItem.push(montoCobradoTotal - acum);
+      else { const p = Math.round(montoCobradoTotal * (totalItem/totalVenta)); mcPorItem.push(p); acum += p; }
+    }
+  }
+
+  const filasMem = [], filasDb = [];
   for(let k=0; k<items.length; k++){
     const it = items[k];
-    const id = (Date.now() + k).toString() + Math.floor(Math.random()*90+10);
+    const id = nuevoId();
     if(!primerId) primerId = id;
     const totalItem = it.cantidad * it.precio;
-    // Repartir el monto cobrado proporcionalmente entre los items
-    const mcItem = montoCobradoTotal === null
-      ? null
-      : Math.round(montoCobradoTotal * (totalItem / totalVenta));
+    const mcItem = montoCobradoTotal === null ? null : mcPorItem[k];
     const notaItem = refVenta ? (notas ? notas + ' [' + refVenta + ']' : '[' + refVenta + ']') : notas;
 
-    appData.ventas.push({id, fecha, cliente, producto:it.producto, cantidad:it.cantidad,
+    filasMem.push({id, fecha, cliente, producto:it.producto, cantidad:it.cantidad,
       precioUnit:it.precio, total:totalItem, cobrada, montoCobrado:mcItem, notas:notaItem, medio,
       historica:false, ubicacionId:ubicacionId});
-
-    await sbUpsert('ventas',{id, fecha, cliente, producto:it.producto, cantidad:it.cantidad,
+    filasDb.push({id, fecha, cliente, producto:it.producto, cantidad:it.cantidad,
       precio_unit:it.precio, total:totalItem, cobrada, monto_cobrado:mcItem, notas:notaItem, medio,
       historica:false, ubicacion_id:ubicacionId});
+  }
 
-    // Actualizar precio de lista del producto
+  // Una sola escritura con todas las filas: la venta entra completa o no entra.
+  // Antes era un upsert por producto y un corte a mitad dejaba la venta partida.
+  guardandoDesde = Date.now();
+  const okVenta = await sbUpsert('ventas', filasDb);
+  guardandoDesde = 0;
+  if(okVenta === 'falla'){
+    toast('\u26A0 No se pudo registrar la venta. No la doy por cargada: revisá y probá de nuevo');
+    return;
+  }
+  filasMem.forEach(function(f){ appData.ventas.push(f); });
+
+  // Actualizar precio de lista de cada producto
+  for(const it of items){
     const pn = normalizar(it.producto);
     const pb = TODOS_LOS_PRODUCTOS.find(p=>normalizar(p.nombre)===pn);
     if(pb && pb.precioVenta !== it.precio){ pb.precioVenta = it.precio; precioActualizado = true; }
     const pc = (appData.productosCustom||[]).find(p=>normalizar(p.nombre)===pn);
     if(pc && pc.precioVenta !== it.precio){
       pc.precioVenta = it.precio;
-      sbUpdate('productos_custom', pc.id, {precio_venta: it.precio});
+      await sbUpdate('productos_custom', pc.id, {precio_venta: it.precio});
       precioActualizado = true;
     }
   }
@@ -1757,7 +1925,7 @@ async function guardarVenta(){
   document.getElementById('ventaPrecioDisplay').style.background='var(--verde)';
   document.getElementById('ventaPrecioDisplay').innerHTML='<span>Total de la venta</span><span class="precio-total" id="ventaTotalValor">$0</span>';
 
-  renderVentasPendientes(); renderDashboard();
+  refrescarVistas();
 
   const msg = items.length > 1
     ? 'Venta registrada: ' + items.length + ' productos por ' + formatPeso(totalVenta)
@@ -1832,7 +2000,10 @@ async function guardarEdicionVenta(){
   const medioE = document.getElementById('editMedio') ? document.getElementById('editMedio').value : null;
   if(v){ Object.assign(v,{fecha,cliente,producto,cantidad,precioUnit:precio,total,cobrada,montoCobrado,notas,ubicacionId,medio:medioE}); }
 
+  guardandoDesde = Date.now();
   await sbUpdate('ventas', id, {fecha,cliente,producto,cantidad,precio_unit:precio,total,cobrada,monto_cobrado:montoCobrado,notas,ubicacion_id:ubicacionId,medio:medioE});
+  guardandoDesde = 0;
+  refrescarVistas();
 
   document.getElementById('modalEditarVenta').style.display = 'none';
   renderDashboard(); renderVentasPendientes(); renderStock();
@@ -1862,13 +2033,24 @@ function cerrarModalCobro(){
 function cerrarModal(e){
   if(e.target.id==='modalCobrar') cerrarModalCobro();
 }
-function confirmarCobro(){
+async function confirmarCobro(){
   if(!_ventaACobrar) return;
   const v = appData.ventas.find(v=>v.id===_ventaACobrar);
-  if(v){ v.cobrada=true; sbUpdate('ventas',v.id,{cobrada:true}); }
+  if(!v){ cerrarModalCobro(); return; }
+  const antes = {cobrada: v.cobrada, montoCobrado: v.montoCobrado};
+  v.cobrada = true; v.montoCobrado = null;
   cerrarModalCobro();
-  renderVentasPendientes(); renderDashboard();
-  toast('✅ Venta marcada como cobrada');
+  refrescarVistas();                       // la caja sube ahora, no en 30 segundos
+  guardandoDesde = Date.now();
+  const res = await sbUpdate('ventas', v.id, {cobrada:true, monto_cobrado:null});
+  guardandoDesde = 0;
+  if(res === 'falla'){
+    // No entró y no va a entrar: deshago para no mostrar plata que no existe
+    v.cobrada = antes.cobrada; v.montoCobrado = antes.montoCobrado;
+    refrescarVistas();
+  } else {
+    toast(res === 'ok' ? '✅ Venta marcada como cobrada' : '⏳ Cobro guardado, se sube cuando haya señal');
+  }
 }
 function renderVentasPendientes(){
   const pend=appData.ventas.filter(v=>!v.cobrada).sort((a,b)=>{
@@ -1901,6 +2083,8 @@ function renderVentasPendientes(){
 // COMPRAS
 // ══════════════════════════════════════════════════════════════
 async function guardarCompra(){
+  // Un segundo toque mientras se esta guardando crearia una compra duplicada
+  if(estaGuardando()){ toast('Esperá, estoy guardando…'); return; }
   const fecha=document.getElementById('compraFecha').value,
         proveedor=document.getElementById('compraProveedor').value.trim(),
         producto=document.getElementById('compraProducto').value,
@@ -1911,9 +2095,15 @@ async function guardarCompra(){
   const ubicSelC = document.getElementById('compraUbicacion');
   const ubicacionIdC = ubicSelC ? ubicSelC.value : (ubicacionDefault() ? ubicacionDefault().id : null);
   const medioC = document.getElementById('compraMedio').value;
-  const id=Date.now().toString();
+  const id=nuevoId();
+  guardandoDesde = Date.now();
+  const okC = await sbUpsert('compras',{id,fecha,proveedor,producto,cantidad,costo_unit:costo,total:cantidad*costo,notas,historica:false,ubicacion_id:ubicacionIdC,medio:medioC});
+  guardandoDesde = 0;
+  if(okC === 'falla'){
+    toast('\u26A0 No se pudo registrar la compra. Revisá y probá de nuevo');
+    return;
+  }
   appData.compras.push({id,fecha,proveedor,producto,cantidad,costoUnit:costo,total:cantidad*costo,notas,historica:false,ubicacionId:ubicacionIdC,medio:medioC});
-  sbUpsert('compras',{id,fecha,proveedor,producto,cantidad,costo_unit:costo,total:cantidad*costo,notas,historica:false,ubicacion_id:ubicacionIdC,medio:medioC});
 
   // Actualizar costo del producto automáticamente
   const prodNorm = normalizar(producto);
@@ -1929,7 +2119,7 @@ async function guardarCompra(){
   const prodCustom = (appData.productosCustom||[]).find(p=>normalizar(p.nombre)===prodNorm);
   if(prodCustom && prodCustom.costoBase !== costo){
     prodCustom.costoBase = costo;
-    sbUpdate('productos_custom', prodCustom.id, {costo_base: costo});
+    await sbUpdate('productos_custom', prodCustom.id, {costo_base: costo});
     costoActualizado = true;
   }
 
@@ -1939,7 +2129,7 @@ async function guardarCompra(){
   document.getElementById('compraCosto').value='';
   document.getElementById('compraNotas').value='';
   document.getElementById('compraTotalValor').textContent='$0';
-  renderUltimasCompras(); renderDashboard();
+  refrescarVistas();
   toast(costoActualizado ? `✅ Compra registrada · Costo actualizado a ${formatPeso(costo)}` : '✅ Compra registrada!');
 }
 function renderUltimasCompras(){
@@ -2093,6 +2283,8 @@ function calcularTotalGasto(){
 }
 
 async function guardarGasto(){
+  // Un segundo toque mientras se esta guardando crearia un gasto duplicado
+  if(estaGuardando()){ toast('Esperá, estoy guardando…'); return; }
   const fecha       = document.getElementById('gastoFecha').value;
   const tipo        = document.getElementById('gastoTipo').value;
   const descripcion = document.getElementById('gastoDescripcion').value.trim();
@@ -2104,9 +2296,15 @@ async function guardarGasto(){
   if(monto <= 0)  { toast('⚠️ El monto debe ser mayor a 0'); return; }
 
   const medioG = document.getElementById('gastoMedio').value;
-  const id = Date.now().toString();
+  const id = nuevoId();
+  guardandoDesde = Date.now();
+  const okG = await sbUpsert('gastos',{id,fecha,tipo,descripcion,monto,pagado,notas,medio:medioG});
+  guardandoDesde = 0;
+  if(okG === 'falla'){
+    toast('\u26A0 No se pudo registrar el gasto. Revisá y probá de nuevo');
+    return;
+  }
   appData.gastos.push({ id, fecha, tipo, descripcion, monto, pagado, notas, medio:medioG });
-  sbUpsert('gastos',{id,fecha,tipo,descripcion,monto,pagado,notas,medio:medioG});
 
   document.getElementById('gastoDescripcion').value = '';
   document.getElementById('gastoMonto').value = '';
@@ -2115,13 +2313,13 @@ async function guardarGasto(){
 
   toast('✅ Gasto registrado!');
   renderGastos();
-  renderCaja();
+  refrescarVistas();
 }
 
-function eliminarGasto(id){
+async function eliminarGasto(id){
   if(!confirm('¿Eliminar este gasto?')) return;
   appData.gastos = appData.gastos.filter(g=>g.id!==id);
-  sbDelete('gastos',id); renderGastos(); renderCaja();
+  await sbDelete('gastos',id); renderGastos(); refrescarVistas();
   toast('🗑 Gasto eliminado');
 }
 
@@ -2196,14 +2394,11 @@ function nombreMedio(m){
 
 function saldosPorMedio(){
   const cfg = appData.config;
-  const capTot  = parseFloat(cfg.capital)||0;
-  const capMp   = parseFloat(cfg.capitalMp)||0;
-  const adelTot = parseFloat(cfg.adelantos)||0;
-  const adelMp  = parseFloat(cfg.adelantosMp)||0;
-
+  // Punto de partida: lo que Mariano contó que tiene en cada cuenta.
+  // Todo lo anterior a eso queda absorbido ahí y no hace falta etiquetarlo.
   const r = {
-    efectivo:    {capital: capTot-capMp, cobrado:0, compras:0, gastos:0, movs:0, adelantos: adelTot-adelMp},
-    mercadopago: {capital: capMp,        cobrado:0, compras:0, gastos:0, movs:0, adelantos: adelMp}
+    efectivo:    {inicio: parseFloat(cfg.saldoIniEf)||0, cobrado:0, compras:0, gastos:0, movs:0},
+    mercadopago: {inicio: parseFloat(cfg.saldoIniMp)||0, cobrado:0, compras:0, gastos:0, movs:0}
   };
   const sin = {cobrado:0, compras:0, gastos:0};
 
@@ -2232,7 +2427,7 @@ function saldosPorMedio(){
 
   MEDIOS.forEach(function(k){
     const x = r[k];
-    x.saldo = x.capital + x.cobrado - x.compras - x.gastos + x.movs - x.adelantos;
+    x.saldo = x.inicio + x.cobrado - x.compras - x.gastos + x.movs;
   });
   const enMano = componentesCaja().enMano;
   r.sinAsignar = {cobrado:sin.cobrado, compras:sin.compras, gastos:sin.gastos,
@@ -2250,12 +2445,11 @@ function renderMedios(){
   document.getElementById('cajaMPSub').textContent       = `cobrado ${formatPeso(mp.cobrado)}`;
 
   const filas = [
-    ['Capital inicial',    ef.capital,  mp.capital],
-    ['(+) Cobrado',        ef.cobrado,  mp.cobrado],
+    ['Saldo de arranque',  ef.inicio,   mp.inicio],
+    ['(+) Cobrado desde entonces', ef.cobrado, mp.cobrado],
     ['(-) Compras',       -ef.compras, -mp.compras],
     ['(-) Gastos pagados', -ef.gastos,  -mp.gastos],
     ['(±) Pasajes entre cuentas', ef.movs, mp.movs],
-    ['(-) Adelantos',     -ef.adelantos, -mp.adelantos],
   ];
   let html = '';
   filas.forEach(function(f){
@@ -2270,39 +2464,58 @@ function renderMedios(){
   document.getElementById('tbodyMedios').innerHTML = html;
 
   const aviso = document.getElementById('avisoSinMedio');
+  const conMedio = appData.ventas.filter(function(v){ return v.medio; }).length
+                 + appData.compras.filter(function(c){ return c.medio; }).length
+                 + (appData.gastos||[]).filter(function(g){ return g.medio; }).length;
+  let av = '';
   if(Math.abs(sa.saldo) > 1){
-    const nV = appData.ventas.filter(function(v){ return !v.medio && (v.cobrada || v.montoCobrado>0); }).length;
-    const nC = appData.compras.filter(function(c){ return !c.medio; }).length;
-    const nG = (appData.gastos||[]).filter(function(g){ return g.pagado && !g.medio; }).length;
-    aviso.innerHTML = `<div class="alerta" style="margin-top:8px">\u{1F4CC} Quedan <strong>${formatPeso(sa.saldo)}</strong> sin asignar a ninguna cuenta: `
-      + `${nV} venta(s), ${nC} compra(s) y ${nG} gasto(s) cargados antes de que existiera esta separación. `
-      + `Los dos saldos de arriba más esto da la plata en mano total, así que la cuenta cierra igual.<br><br>`
-      + `<button class="btn btn-secondary" onclick="asignarMedioViejos('efectivo')" style="margin-top:4px">Marcar todo eso como 💵 Efectivo</button>`
-      + `<button class="btn btn-secondary" onclick="asignarMedioViejos('mercadopago')" style="margin-top:4px">Marcar todo como 📱 Mercado Pago</button></div>`;
-  } else {
-    aviso.innerHTML = '';
+    av += `<div class="alerta" style="margin-top:8px">\u{1F4CC} <strong>${formatPeso(sa.saldo)}</strong> del total no está en ninguna de las dos cuentas de arriba. `
+       + `Es todo lo de antes del arranque más el capital y los adelantos. Los dos saldos más esto dan la plata en mano, así que la cuenta cierra. `
+       + `Si contás tu efectivo y tu Mercado Pago de hoy y los ponés arriba, este número se va a cero solo.</div>`;
   }
+  if(conMedio > 0){
+    av += `<div class="alerta" style="margin-top:8px">\u{1F3F7} Hay <strong>${conMedio}</strong> registro(s) con medio asignado. `
+       + `Si marcaste de más por error, podés limpiarlos todos de una y volver a empezar:<br>`
+       + `<button class="btn btn-secondary" onclick="limpiarMedios()" style="margin-top:6px">\u{21A9} Desmarcar todo y volver a Sin asignar</button></div>`;
+  }
+  aviso.innerHTML = av;
 }
 
-// Asigna un medio a todo lo viejo que no lo tenga. Pide confirmacion porque
-// toca muchos registros de una sola vez.
-async function asignarMedioViejos(medio){
-  const vs = appData.ventas.filter(function(v){ return !v.medio && (v.cobrada || v.montoCobrado>0); });
-  const cs = appData.compras.filter(function(c){ return !c.medio; });
-  const gs = (appData.gastos||[]).filter(function(g){ return g.pagado && !g.medio; });
+// Saca el medio de todos los registros que lo tengan: deshace una asignacion
+// masiva hecha por error y deja todo como antes.
+async function limpiarMedios(){
+  const vs = appData.ventas.filter(function(v){ return v.medio; });
+  const cs = appData.compras.filter(function(c){ return c.medio; });
+  const gs = (appData.gastos||[]).filter(function(g){ return g.medio; });
   const n = vs.length + cs.length + gs.length;
-  if(!n){ toast('No hay nada sin asignar'); return; }
-  if(!confirm(`Vas a marcar ${n} registro(s) como ${medio === 'efectivo' ? 'Efectivo' : 'Mercado Pago'}.\n\n${vs.length} ventas, ${cs.length} compras, ${gs.length} gastos.\n\n¿Confirmás?`)) return;
-  mostrarCargando('Asignando…');
-  for(const v of vs){ v.medio = medio; await sbUpdate('ventas',  v.id, {medio:medio}); }
-  for(const c of cs){ c.medio = medio; await sbUpdate('compras', c.id, {medio:medio}); }
-  for(const g of gs){ g.medio = medio; await sbUpdate('gastos',  g.id, {medio:medio}); }
+  if(!n){ toast('No hay nada marcado'); return; }
+  if(!confirm(`Vas a borrar el medio de pago de ${n} registro(s): ${vs.length} ventas, ${cs.length} compras, ${gs.length} gastos.\n\nTodos vuelven a "Sin asignar". Los importes, fechas y clientes no se tocan.\n\n¿Confirmás?`)) return;
+  mostrarCargando('Limpiando…');
+  let hechos = 0;
+  for(const v of vs){ v.medio = null; await sbUpdate('ventas',  v.id, {medio:null}); hechos++; if(hechos%25===0) mostrarCargando(`Limpiando… ${hechos}/${n}`); }
+  for(const c of cs){ c.medio = null; await sbUpdate('compras', c.id, {medio:null}); hechos++; if(hechos%25===0) mostrarCargando(`Limpiando… ${hechos}/${n}`); }
+  for(const g of gs){ g.medio = null; await sbUpdate('gastos',  g.id, {medio:null}); hechos++; if(hechos%25===0) mostrarCargando(`Limpiando… ${hechos}/${n}`); }
   ocultarCargando();
-  toast(`✅ ${n} registro(s) asignados`);
+  toast(`\u{21A9} ${n} registro(s) desmarcados`);
   renderCaja();
 }
 
+// Guarda los saldos que Mariano contó en cada cuenta
+async function guardarSaldosArranque(){
+  if(!datosOk){ toast('⚠️ Los datos no se cargaron. Recargá la página'); return; }
+  const ef = parseFloat(document.getElementById('saldoIniEf').value);
+  const mp = parseFloat(document.getElementById('saldoIniMp').value);
+  if(!isFinite(ef) || !isFinite(mp)){ toast('⚠️ Completá los dos saldos (poné 0 si una cuenta está vacía)'); return; }
+  appData.config.saldoIniEf = ef;
+  appData.config.saldoIniMp = mp;
+  await guardarConfigSupa();
+  renderCaja();
+  toast('✅ Saldos de arranque guardados');
+}
+
 async function guardarMovCaja(){
+  // Un segundo toque mientras se esta guardando crearia un movimiento duplicado
+  if(estaGuardando()){ toast('Esperá, estoy guardando…'); return; }
   const fecha  = document.getElementById('movCajaFecha').value || fechaHoyLocal();
   const monto  = parseFloat(document.getElementById('movCajaMonto').value)||0;
   const origen = document.getElementById('movCajaOrigen').value || null;
@@ -2313,14 +2526,17 @@ async function guardarMovCaja(){
   if(origen === destino){ toast('⚠️ Origen y destino son la misma cuenta'); return; }
 
   const tipo = 'transferencia';
-  const id = Date.now().toString();
+  const id = nuevoId();
+  guardandoDesde = Date.now();
+  const okM = await sbUpsert('mov_caja', {id, fecha, tipo, monto, origen, destino, notas});
+  guardandoDesde = 0;
+  if(okM === 'falla'){ toast('No se pudo registrar el movimiento'); return; }
   appData.movCaja.unshift({id, fecha, tipo, monto, origen, destino, notas});
-  await sbUpsert('mov_caja', {id, fecha, tipo, monto, origen, destino, notas});
 
   document.getElementById('movCajaMonto').value = '';
   document.getElementById('movCajaNotas').value = '';
   toast('✅ Movimiento registrado');
-  renderCaja();
+  refrescarVistas();
 }
 
 async function eliminarMovCaja(id){
@@ -2345,22 +2561,6 @@ function renderMovCaja(){
       + `<td><strong>${formatPeso(m.monto)}</strong></td>`
       + `<td><button class="btn-icon" onclick="eliminarMovCaja('${m.id}')">🗑</button></td></tr>`;
   }).join('');
-}
-
-// Muestra como queda repartido el capital mientras se escribe en Config
-function previewReparto(){
-  const el = document.getElementById('repartoPreview');
-  if(!el) return;
-  const cap  = parseFloat(document.getElementById('cfgCapital').value)||0;
-  const capMp= parseFloat(document.getElementById('cfgCapitalMp').value)||0;
-  const ad   = parseFloat(document.getElementById('cfgAdelantos').value)||0;
-  const adMp = parseFloat(document.getElementById('cfgAdelantosMp').value)||0;
-  if(capMp > cap){
-    el.innerHTML = `<span style="color:#e57373">⚠️ La parte en Mercado Pago (${formatPeso(capMp)}) no puede ser mayor al capital total (${formatPeso(cap)}).</span>`;
-    return;
-  }
-  el.innerHTML = `Capital: <strong>${formatPeso(cap-capMp)}</strong> en efectivo + <strong>${formatPeso(capMp)}</strong> en Mercado Pago.<br>`
-    + `Adelantos: <strong>${formatPeso(ad-adMp)}</strong> del efectivo + <strong>${formatPeso(adMp)}</strong> de Mercado Pago.`;
 }
 
 function renderCaja(){
@@ -2835,7 +3035,17 @@ function renderHistorialCompras(q){
   document.getElementById('pagPrev').disabled=histPagina===0;
   document.getElementById('pagNext').disabled=histPagina>=tp-1;
 }
-function eliminarVenta(id){if(!confirm('¿Eliminar esta venta?'))return;appData.ventas=appData.ventas.filter(v=>v.id!==id);sbDelete('ventas',id);renderHistorial();renderDashboard();toast('🗑 Eliminada');}
+async function eliminarVenta(id){
+  if(!confirm('¿Eliminar esta venta?')) return;
+  const copia = appData.ventas.find(v=>v.id===id);
+  appData.ventas = appData.ventas.filter(v=>v.id!==id);
+  refrescarVistas();
+  guardandoDesde = Date.now();
+  const res = await sbDelete('ventas', id);
+  guardandoDesde = 0;
+  if(res === 'falla' && copia){ appData.ventas.push(copia); refrescarVistas(); }
+  else toast('🗑 Eliminada');
+}
 // ---- EDITAR COMPRA ----
 function abrirEditarCompra(id){
   const c = appData.compras.find(function(x){ return x.id===id; });
@@ -2884,7 +3094,17 @@ async function guardarEdicionCompra(){
   toast('Compra actualizada');
 }
 
-function eliminarCompra(id){if(!confirm('¿Eliminar esta compra?'))return;appData.compras=appData.compras.filter(c=>c.id!==id);sbDelete('compras',id);renderHistorial();renderDashboard();toast('🗑 Eliminada');}
+async function eliminarCompra(id){
+  if(!confirm('¿Eliminar esta compra?')) return;
+  const copia = appData.compras.find(c=>c.id===id);
+  appData.compras = appData.compras.filter(c=>c.id!==id);
+  refrescarVistas();
+  guardandoDesde = Date.now();
+  const res = await sbDelete('compras', id);
+  guardandoDesde = 0;
+  if(res === 'falla' && copia){ appData.compras.push(copia); refrescarVistas(); }
+  else toast('🗑 Eliminada');
+}
 
 // ══════════════════════════════════════════════════════════════
 // PRODUCTOS
@@ -2991,7 +3211,7 @@ async function guardarProducto(){
   if(!appData.productosCustom)appData.productosCustom=[];
   const id=Date.now().toString();
   appData.productosCustom.push({nombre,categoria,precioVenta:vta,costoBase:cto,codigo,id,custom:true});
-  sbUpsert('productos_custom',{id,nombre,categoria,precio_venta:vta,costo_base:cto,codigo});
+  await sbUpsert('productos_custom',{id,nombre,categoria,precio_venta:vta,costo_base:cto,codigo});
   reconstruirSelectores();
   document.getElementById('prodNombre').value='';
   document.getElementById('prodPrecioVenta').value='';
@@ -3003,7 +3223,7 @@ async function guardarProducto(){
 async function eliminarProductoCustom(id){
   if(!confirm('¿Eliminar este producto?'))return;
   appData.productosCustom=(appData.productosCustom||[]).filter(p=>p.id!==id);
-  sbDelete('productos_custom',id);
+  await sbDelete('productos_custom',id);
   reconstruirSelectores(); renderListaProductos(); toast('🗑 Producto eliminado');
 }
 function renderListaProductos(){
@@ -3029,8 +3249,6 @@ function guardarConfig(){
     return;
   }
   const cap  = parseFloat(document.getElementById('cfgCapital').value);
-  const capMp  = parseFloat(document.getElementById('cfgCapitalMp').value);
-  const adelMp = parseFloat(document.getElementById('cfgAdelantosMp').value);
   const adel = parseFloat(document.getElementById('cfgAdelantos').value);
   const sal  = parseFloat(document.getElementById('cfgSaldoCaja').value);
   const umb  = parseInt(document.getElementById('cfgStockThreshold').value);
@@ -3044,12 +3262,7 @@ function guardarConfig(){
   if(Math.abs(cap-antes) > 1 && antes > 0){
     if(!confirm(`Vas a cambiar el capital inicial de ${formatPeso(antes)} a ${formatPeso(cap)}.\n\nEso mueve la plata en mano ${cap>antes?'para arriba':'para abajo'} en ${formatPeso(Math.abs(cap-antes))}.\n\n¿Confirmás?`)) return;
   }
-  const capMpOk  = isFinite(capMp)  ? capMp  : 0;
-  const adelMpOk = isFinite(adelMp) ? adelMp : 0;
-  if(capMpOk > cap){ toast('⚠️ La parte en Mercado Pago no puede ser mayor al capital total'); return; }
   appData.config.capital        = cap;
-  appData.config.capitalMp      = capMpOk;
-  appData.config.adelantosMp    = adelMpOk;
   appData.config.adelantos      = isFinite(adel) ? adel : appData.config.adelantos;
   appData.config.saldoCaja      = isFinite(sal)  ? sal  : appData.config.saldoCaja;
   appData.config.stockThreshold = isFinite(umb)  ? umb  : appData.config.stockThreshold;
@@ -3970,8 +4183,7 @@ async function confirmarPedido(pedidoId){
 
   toast(`✅ Pedido confirmado — ${items.length} venta(s) registradas`);
   renderPedidos();
-  renderDashboard();
-  renderVentasPendientes();
+  refrescarVistas();
 }
 
 async function cancelarPedido(pedidoId){
