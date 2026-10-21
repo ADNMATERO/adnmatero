@@ -288,6 +288,25 @@ async function sbGet(table, query=''){
   return r.ok ? r.json() : [];
 }
 
+// Trae TODAS las filas, de a mil. Con un tope fijo, pasadas esas filas el
+// stock sale mas alto de lo real porque quedan ventas sin restar, y la tienda
+// ofrece lo que no hay.
+async function sbGetTodo(table, query){
+  const BLOQUE = 1000, MAX = 60;
+  let todo = [], desde = 0;
+  for(let i=0; i<MAX; i++){
+    const r = await fetch(`${SUPA_URL}/rest/v1/${table}?${query}&limit=${BLOQUE}&offset=${desde}`,{
+      headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}
+    });
+    if(!r.ok) throw new Error(`${table}: ${r.status}`);
+    const parte = await r.json();
+    todo = todo.concat(parte);
+    if(parte.length < BLOQUE) break;
+    desde += BLOQUE;
+  }
+  return todo;
+}
+
 // ── ESTADO ──────────────────────────────────────────────────
 let catalogo = [];
 let fotos = {};
@@ -316,8 +335,8 @@ async function cargarCatalogo(){
   const [prods, fotosList, ventas, compras, promosList] = await Promise.all([
     sbGet('catalogo','activo=eq.true&order=categoria.asc,orden.asc,nombre.asc'),
     sbGet('catalogo_fotos','order=producto_id.asc,orden.asc'),
-    sbGet('ventas','select=producto,cantidad&limit=5000'),
-    sbGet('compras','select=producto,cantidad&limit=5000'),
+    sbGetTodo('ventas','select=producto,cantidad&order=id.asc'),
+    sbGetTodo('compras','select=producto,cantidad&order=id.asc'),
     sbGet('promociones','activa=eq.true')
   ]);
   promos = promosList || [];
@@ -464,27 +483,37 @@ const STOCK_INICIAL = {
 };
 
 let stockPorProducto = {};
+// Hasta que no lleguen las ventas y las compras no se sabe el stock; mientras
+// tanto no se bloquea nada, para no mostrar todo agotado al abrir la pagina.
+let _stockListo = false;
 
 function calcularStock(ventas, compras){
   const acum = {};
-  Object.entries(STOCK_INICIAL).forEach(([n,q])=>{ acum[normalizar(n)] = q; });
+  Object.entries(STOCK_INICIAL).forEach(([n,q])=>{ acum[claveProducto(n)] = q; });
   (compras||[]).forEach(c=>{
-    const k = normalizar(c.producto);
+    const k = claveProducto(c.producto);
     acum[k] = (acum[k]||0) + (parseFloat(c.cantidad)||0);
   });
   (ventas||[]).forEach(v=>{
-    const k = normalizar(v.producto);
+    const k = claveProducto(v.producto);
     acum[k] = (acum[k]||0) - (parseFloat(v.cantidad)||0);
   });
   stockPorProducto = acum;
+  _stockListo = true;
 }
 
-// Stock disponible descontando lo que ya esta en el carrito
+// Stock disponible descontando lo que ya esta en el carrito.
+// ANTES: si el nombre del catalogo no coincidia EXACTO con el de ventas y
+// compras, devolvia null, y null queria decir "vende sin limite". Por eso se
+// podian pedir productos con stock cero: alcanzaba una coma o un espacio de
+// diferencia para que la tienda perdiera de vista el stock de ese producto.
+// AHORA: si no hay dato, es cero. No se vende lo que no figura.
 function stockDisponible(prod){
-  const base = stockPorProducto[normalizar(prod.nombre)];
-  if(base === undefined) return null;  // producto sin historial: se asume disponible
+  if(!_stockListo) return null;   // todavia no llegaron los datos: no bloquear de entrada
+  const base = stockPorProducto[claveProducto(prod.nombre)];
+  const real = (base === undefined) ? 0 : base;
   const enCarrito = carrito.find(c=>c.id===prod.id)?.qty || 0;
-  return base - enCarrito;
+  return real - enCarrito;
 }
 
 function hayStock(prod){
@@ -501,6 +530,18 @@ function filtrarCat(cat, el){
 }
 
 function normalizar(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim(); }
+// Clave del producto: ademas de los acentos saca mayusculas, espacios, comas,
+// puntos y guiones. Es la misma que usa la app de administracion, asi la
+// tienda reconoce el producto aunque el nombre del catalogo este escrito
+// distinto que en las ventas y las compras.
+const _ckCache = {};
+function claveProducto(nombre){
+  const n = nombre || '';
+  if(_ckCache[n] !== undefined) return _ckCache[n];
+  const k = normalizar(n).replace(/[^a-z0-9]+/g,'');
+  _ckCache[n] = k;
+  return k;
+}
 function formatPeso(n){ return '$'+Math.round(n).toLocaleString('es-AR'); }
 
 function renderProductos(){
@@ -989,8 +1030,8 @@ function mostrarFallbackWA(url){
 async function refrescarStock(){
   try{
     const [ventas, compras, promosList] = await Promise.all([
-      sbGet('ventas','select=producto,cantidad&limit=5000'),
-      sbGet('compras','select=producto,cantidad&limit=5000'),
+      sbGetTodo('ventas','select=producto,cantidad&order=id.asc'),
+      sbGetTodo('compras','select=producto,cantidad&order=id.asc'),
       sbGet('promociones','activa=eq.true')
     ]);
     if(promosList) promos = promosList;
